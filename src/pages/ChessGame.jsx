@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { supabase } from '../lib/supabaseClient';
-import { analyzeMove } from '../lib/stockfishCoach';
+import { analyzeMove, getBotMove } from '../lib/stockfishCoach';
 import {
   calculateElo,
   getGameResult,
@@ -22,6 +22,28 @@ function getProfileSelect() {
     white_profile:profiles!games_white_player_id_fkey(id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed),
     black_profile:profiles!games_black_player_id_fkey(id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed)
   `;
+}
+
+function getBotThinkingDelay(rating) {
+  const botRating = Number(rating || DEFAULT_RATING);
+
+  if (botRating >= 2200) return 1600 + Math.floor(Math.random() * 1200);
+  if (botRating >= 1800) return 1300 + Math.floor(Math.random() * 1000);
+  if (botRating >= 1400) return 1000 + Math.floor(Math.random() * 900);
+  if (botRating >= 1000) return 800 + Math.floor(Math.random() * 700);
+
+  return 650 + Math.floor(Math.random() * 550);
+}
+
+function getCoachDepthForBotRating(rating) {
+  const botRating = Number(rating || DEFAULT_RATING);
+
+  if (botRating >= 2200) return 16;
+  if (botRating >= 1800) return 14;
+  if (botRating >= 1400) return 12;
+  if (botRating >= 1000) return 10;
+
+  return 8;
 }
 
 export default function ChessGame({
@@ -56,6 +78,7 @@ export default function ChessGame({
 
   const pollingRef = useRef(null);
   const ratingProcessedRef = useRef({});
+  const botMovingRef = useRef(false);
 
   const isGuest = !session?.user;
   const userId = session?.user?.id || null;
@@ -105,7 +128,9 @@ export default function ChessGame({
 
     const { data } = await supabase
       .from('profiles')
-      .select('id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed')
+      .select(
+        'id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed'
+      )
       .eq('id', userId)
       .maybeSingle();
 
@@ -198,11 +223,13 @@ export default function ChessGame({
     setCoach(null);
     setHistory(freshGame.history());
     setThinking(false);
+    botMovingRef.current = false;
     setScreen('game');
   }
 
-  async function startNewGame() {
+  async function startNewGame(customBotRating = botRatingTarget) {
     const freshGame = new Chess();
+    const targetRating = Number(customBotRating || botRatingTarget || DEFAULT_RATING);
 
     const { data, error } = await supabase
       .from('games')
@@ -218,7 +245,7 @@ export default function ChessGame({
         time_control_seconds: timeControl,
         white_time_seconds: timeControl,
         black_time_seconds: timeControl,
-        bot_rating_target: botRatingTarget,
+        bot_rating_target: targetRating,
         rating_processed: false,
         last_move_at: new Date().toISOString()
       })
@@ -230,6 +257,7 @@ export default function ChessGame({
       return;
     }
 
+    setBotRatingTarget(targetRating);
     resetGameState(freshGame, data);
   }
 
@@ -291,7 +319,11 @@ export default function ChessGame({
   }
 
   async function joinFriendGame(codeValue = joinCode) {
-    const code = codeValue.trim().toUpperCase();
+    const code = String(codeValue || '')
+      .trim()
+      .replace(/\s/g, '')
+      .toUpperCase();
+
     if (!code) return;
 
     const { data: row, error } = await supabase
@@ -301,7 +333,15 @@ export default function ChessGame({
       .maybeSingle();
 
     if (error || !row) {
-      alert(error?.message || 'Game code not found.');
+      alert(
+        error?.message ||
+          'Game code not found. If the code is correct, your Supabase games SELECT policy is blocking waiting invite games.'
+      );
+      return;
+    }
+
+    if (row.status !== 'waiting' && row.status !== 'active') {
+      alert('This game is no longer joinable.');
       return;
     }
 
@@ -319,6 +359,7 @@ export default function ChessGame({
     }
 
     updates.status = 'active';
+    updates.updated_at = new Date().toISOString();
 
     const { data: updated, error: updateError } = await supabase
       .from('games')
@@ -340,14 +381,47 @@ export default function ChessGame({
     const params = new URLSearchParams(window.location.search);
     const code = params.get('join');
 
-    if (code) setJoinCode(code.toUpperCase());
+    if (code) {
+      setJoinCode(code.trim().replace(/\s/g, '').toUpperCase());
+      setScreen('friends');
+    }
   }, []);
 
-  useEffect(() => {
-    if (screen === 'menu' && joinCode) {
-      joinFriendGame(joinCode);
-    }
-  }, [screen, joinCode]);
+  async function updateStatsForCompletedGame(row) {
+    if (!userId || isGuest || !row || row.status !== 'complete') return;
+
+    const isPlayer =
+      row.white_player_id === userId ||
+      row.black_player_id === userId ||
+      row.white_guest_name === guest?.name ||
+      row.black_guest_name === guest?.name;
+
+    if (!isPlayer) return;
+
+    const isDraw = !row.winner_id;
+    const isWin = row.winner_id === userId;
+    const isLoss = !isDraw && !isWin;
+
+    const { data: currentStats } = await supabase
+      .from('user_stats')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const nextStats = {
+      user_id: userId,
+      games_played: (currentStats?.games_played || 0) + 1,
+      wins: (currentStats?.wins || 0) + (isWin ? 1 : 0),
+      losses: (currentStats?.losses || 0) + (isLoss ? 1 : 0),
+      draws: (currentStats?.draws || 0) + (isDraw ? 1 : 0),
+      bot_games: (currentStats?.bot_games || 0) + (row.mode === 'bot' ? 1 : 0),
+      friend_games: (currentStats?.friend_games || 0) + (row.mode === 'friend' ? 1 : 0),
+      updated_at: new Date().toISOString()
+    };
+
+    await supabase.from('user_stats').upsert(nextStats);
+    await loadStats();
+  }
 
   async function updateRatingsIfNeeded(row) {
     if (!row || row.status !== 'complete') return;
@@ -364,8 +438,7 @@ export default function ChessGame({
       const gamesCompleted = currentProfile.bot_games_completed || 0;
       const opponentRating = row.bot_rating_target || DEFAULT_RATING;
 
-      const result =
-        row.winner_id === userId ? 1 : row.winner_id === null ? 0.5 : 0;
+      const result = row.winner_id === userId ? 1 : row.winner_id === null ? 0.5 : 0;
 
       const newRating = calculateElo({
         playerRating: oldRating,
@@ -382,10 +455,9 @@ export default function ChessGame({
         })
         .eq('id', userId);
 
-      await supabase
-        .from('games')
-        .update({ rating_processed: true })
-        .eq('id', row.id);
+      await updateStatsForCompletedGame(row);
+
+      await supabase.from('games').update({ rating_processed: true }).eq('id', row.id);
 
       await loadProfile();
       return;
@@ -421,20 +493,25 @@ export default function ChessGame({
         gamesCompleted: blackGames
       });
 
-      await supabase.from('profiles').update({
-        friend_rating: newWhiteRating,
-        friend_games_completed: whiteGames + 1
-      }).eq('id', whiteId);
-
-      await supabase.from('profiles').update({
-        friend_rating: newBlackRating,
-        friend_games_completed: blackGames + 1
-      }).eq('id', blackId);
+      await supabase
+        .from('profiles')
+        .update({
+          friend_rating: newWhiteRating,
+          friend_games_completed: whiteGames + 1
+        })
+        .eq('id', whiteId);
 
       await supabase
-        .from('games')
-        .update({ rating_processed: true })
-        .eq('id', row.id);
+        .from('profiles')
+        .update({
+          friend_rating: newBlackRating,
+          friend_games_completed: blackGames + 1
+        })
+        .eq('id', blackId);
+
+      await updateStatsForCompletedGame(row);
+
+      await supabase.from('games').update({ rating_processed: true }).eq('id', row.id);
 
       await loadProfile();
       await loadFriends();
@@ -504,43 +581,38 @@ export default function ChessGame({
     }
   }
 
-  function pickBotMoveByRating(currentGame) {
-    const legalMoves = currentGame.moves({ verbose: true });
-    if (!legalMoves.length) return null;
-
-    const rating = Number(gameRow?.bot_rating_target || botRatingTarget || DEFAULT_RATING);
-    const randomChance = Math.max(0.08, Math.min(0.85, 1 - rating / 3200));
-
-    if (Math.random() < randomChance) {
-      return legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    }
-
-    const captures = legalMoves.filter((move) => move.captured);
-    const checks = legalMoves.filter((move) => {
-      const copy = new Chess(currentGame.fen());
-      copy.move(move);
-      return copy.isCheck();
-    });
-
-    return checks[0] || captures[0] || legalMoves[Math.floor(Math.random() * legalMoves.length)];
-  }
-
   async function makeBotMove(currentGame) {
+    if (botMovingRef.current) return;
     if (currentGame.isGameOver()) return;
 
+    botMovingRef.current = true;
     setThinking(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const rating = Number(gameRow?.bot_rating_target || botRatingTarget || DEFAULT_RATING);
+    const delay = getBotThinkingDelay(rating);
 
-    const botChoice = pickBotMoveByRating(currentGame);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    const botChoice = await getBotMove({
+      fen: currentGame.fen(),
+      rating
+    });
+
     if (!botChoice) {
       setThinking(false);
+      botMovingRef.current = false;
       return;
     }
 
     const fenBefore = currentGame.fen();
     const botMove = currentGame.move(botChoice);
     const fenAfter = currentGame.fen();
+
+    if (!botMove) {
+      setThinking(false);
+      botMovingRef.current = false;
+      return;
+    }
 
     setGame(new Chess(currentGame.fen()));
     setHistory(currentGame.history());
@@ -555,6 +627,7 @@ export default function ChessGame({
     });
 
     setThinking(false);
+    botMovingRef.current = false;
   }
 
   async function onPieceDrop(sourceSquare, targetSquare) {
@@ -577,9 +650,10 @@ export default function ChessGame({
 
     const fenAfter = gameCopy.fen();
     const userMoveUci = uciFromMove(move);
+    const sanHistoryAfterMove = gameCopy.history();
 
     setGame(new Chess(gameCopy.fen()));
-    setHistory(gameCopy.history());
+    setHistory(sanHistoryAfterMove);
 
     if (gameRow?.mode === 'bot') {
       setCoach({
@@ -594,7 +668,8 @@ export default function ChessGame({
         fenBefore,
         fenAfter,
         userMoveUci,
-        depth: 10
+        sanHistory: sanHistoryAfterMove,
+        depth: getCoachDepthForBotRating(gameRow?.bot_rating_target || botRatingTarget)
       });
 
       setCoach(analysis);
@@ -612,9 +687,11 @@ export default function ChessGame({
 
       setThinking(false);
 
-      setTimeout(() => {
-        makeBotMove(gameCopy);
-      }, 400);
+      if (!gameCopy.isGameOver()) {
+        setTimeout(() => {
+          makeBotMove(gameCopy);
+        }, 250);
+      }
     } else {
       await saveMove({
         gameRef: gameCopy,
@@ -707,7 +784,7 @@ export default function ChessGame({
         onGoMenu={() => setScreen('menu')}
         onOpenFriends={() => setScreen('friends')}
         onSignOut={onSignOut}
-        onStartNewGame={startNewGame}
+        onStartNewGame={() => startNewGame(botRatingTarget)}
         onResignGame={resignGame}
         showMenu={screen !== 'menu'}
         showGameActions={screen === 'game'}
@@ -720,7 +797,9 @@ export default function ChessGame({
           playerName={playerName}
           stats={stats}
           profile={profile}
-          onStartBot={startNewGame}
+          botRatingTarget={botRatingTarget}
+          setBotRatingTarget={setBotRatingTarget}
+          onStartBot={() => startNewGame(botRatingTarget)}
           onOpenFriends={() => setScreen('friends')}
         />
       )}
