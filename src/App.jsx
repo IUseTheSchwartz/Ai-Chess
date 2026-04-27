@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from './lib/supabaseClient';
 import Login from './pages/Login';
 import ChessGame from './pages/ChessGame';
@@ -18,9 +18,15 @@ export default function App() {
   const [profileReady, setProfileReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
+  const ensuredUserRef = useRef(null);
 
   async function ensureProfile(user) {
-    if (!user) return;
+    if (!user?.id) return;
+
+    if (ensuredUserRef.current === user.id) {
+      setProfileReady(true);
+      return;
+    }
 
     const username =
       user.user_metadata?.username ||
@@ -43,6 +49,9 @@ export default function App() {
     );
 
     if (error) throw error;
+
+    ensuredUserRef.current = user.id;
+    setProfileReady(true);
   }
 
   useEffect(() => {
@@ -66,8 +75,6 @@ export default function App() {
 
         if (currentSession?.user) {
           await ensureProfile(currentSession.user);
-          if (!mounted) return;
-          setProfileReady(true);
         } else {
           setProfileReady(false);
         }
@@ -84,15 +91,29 @@ export default function App() {
 
     boot();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       try {
-        setSetupError('');
-        setSession(newSession);
-        setProfileReady(false);
+        if (!mounted) return;
 
-        if (newSession?.user) {
-          await ensureProfile(newSession.user);
-          setProfileReady(true);
+        if (event === 'TOKEN_REFRESHED') {
+          setSession(newSession);
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          ensuredUserRef.current = null;
+          setSession(null);
+          setProfileReady(false);
+          return;
+        }
+
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+          setSetupError('');
+          setSession(newSession);
+
+          if (newSession?.user) {
+            await ensureProfile(newSession.user);
+          }
         }
       } catch (err) {
         console.error('Auth change error:', err);
