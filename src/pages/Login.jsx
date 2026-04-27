@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export default function Login() {
+export default function Login({ onGuest }) {
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
+  const [guestName, setGuestName] = useState('Guest');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -72,7 +73,7 @@ export default function Login() {
         </h1>
 
         <p>
-          Challenge the bot, review every move, and get instant AI feedback after your move is locked in.
+          Challenge the bot, play friends, save stats with an account, or jump in as a guest.
         </p>
 
         <div className="feature-grid">
@@ -81,12 +82,12 @@ export default function Login() {
             <small>Score every move from 1–10.</small>
           </div>
           <div>
-            <strong>Best move coach</strong>
-            <small>See what you should have played.</small>
+            <strong>Play friends</strong>
+            <small>Share a link and start a match.</small>
           </div>
           <div>
-            <strong>Game history</strong>
-            <small>Save your progress and improve.</small>
+            <strong>Stats</strong>
+            <small>Create an account to save progress.</small>
           </div>
         </div>
       </section>
@@ -96,7 +97,7 @@ export default function Login() {
           <div className="logo-mark">♞</div>
           <div>
             <h2>{isSignup ? 'Create account' : 'Welcome back'}</h2>
-            <p>{isSignup ? 'Start training in seconds.' : 'Login to continue playing.'}</p>
+            <p>{isSignup ? 'Save your stats and games.' : 'Login to continue playing.'}</p>
           </div>
         </div>
 
@@ -151,6 +152,29 @@ export default function Login() {
         >
           {isSignup ? 'Already have an account? Login' : 'New here? Create an account'}
         </button>
+
+        <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 18 }}>
+          <label>
+            Guest name
+            <input
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              placeholder="Guest"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="switch-auth-btn"
+            onClick={() => onGuest?.(guestName)}
+          >
+            Continue as guest
+          </button>
+
+          <small style={{ display: 'block', opacity: 0.7, marginTop: 8 }}>
+            Guest games are playable, but stats are only saved with an account.
+          </small>
+        </div>
       </form>
     </div>
   );
