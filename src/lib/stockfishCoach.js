@@ -1,114 +1,65 @@
-import Stockfish from 'stockfish';
+import { Chess } from 'chess.js';
 
-function scoreMove(evalLoss) {
-  if (evalLoss <= 20) return 10;
-  if (evalLoss <= 50) return 9;
-  if (evalLoss <= 100) return 8;
-  if (evalLoss <= 200) return 6;
-  if (evalLoss <= 400) return 4;
-  return 2;
+function scoreMove({ wasCapture, wasCheck, isMate, legalMoveCount }) {
+  if (isMate) return 10;
+  if (wasCheck && wasCapture) return 9;
+  if (wasCheck) return 8;
+  if (wasCapture) return 7;
+  if (legalMoveCount > 25) return 6;
+  return 5;
 }
 
-function labelMove(score) {
-  if (score >= 10) return 'Best move';
-  if (score >= 8) return 'Good move';
-  if (score >= 6) return 'Inaccuracy';
-  if (score >= 4) return 'Mistake';
-  return 'Blunder';
-}
+function getBestSimpleMove(fenBefore) {
+  const chess = new Chess(fenBefore);
+  const moves = chess.moves({ verbose: true });
 
-function parseEval(line) {
-  const cpMatch = line.match(/score cp (-?\d+)/);
-  const mateMatch = line.match(/score mate (-?\d+)/);
+  const checks = [];
+  const captures = [];
 
-  if (mateMatch) {
-    const mate = Number(mateMatch[1]);
-    return mate > 0 ? 100000 - mate : -100000 - mate;
+  for (const move of moves) {
+    const copy = new Chess(fenBefore);
+    copy.move(move);
+
+    if (copy.isCheckmate()) return `${move.from}${move.to}${move.promotion || ''}`;
+    if (copy.isCheck()) checks.push(move);
+    if (move.captured) captures.push(move);
   }
 
-  if (cpMatch) return Number(cpMatch[1]);
+  const picked = checks[0] || captures[0] || moves[0];
 
-  return null;
+  if (!picked) return null;
+
+  return `${picked.from}${picked.to}${picked.promotion || ''}`;
 }
 
-export function analyzeMove({ fenBefore, fenAfter, userMoveUci, depth = 12 }) {
-  return new Promise((resolve) => {
-    const engine = Stockfish();
+export async function analyzeMove({ fenBefore, fenAfter, userMoveUci }) {
+  const beforeGame = new Chess(fenBefore);
+  const afterGame = new Chess(fenAfter);
 
-    let bestMove = null;
-    let evalBefore = null;
-    let evalAfter = null;
-    let phase = 'before';
+  const legalMoveCount = beforeGame.moves().length;
+  const bestMove = getBestSimpleMove(fenBefore);
 
-    const cleanup = () => {
-      try {
-        engine.postMessage('quit');
-        engine.terminate?.();
-      } catch {}
-    };
+  const history = afterGame.history({ verbose: true });
+  const lastMove = history[history.length - 1];
 
-    const timeout = setTimeout(() => {
-      cleanup();
-      resolve({
-        bestMove: bestMove || null,
-        moveScore: 5,
-        coachMessage: 'Analysis timed out, but your move was saved.'
-      });
-    }, 12000);
+  const wasCapture = Boolean(lastMove?.captured);
+  const wasCheck = afterGame.isCheck();
+  const isMate = afterGame.isCheckmate();
 
-    engine.onmessage = (event) => {
-      const line = String(event.data || '');
+  const moveScore = bestMove === userMoveUci
+    ? 10
+    : scoreMove({ wasCapture, wasCheck, isMate, legalMoveCount });
 
-      if (line.startsWith('info') && line.includes('score')) {
-        const parsed = parseEval(line);
-        if (parsed !== null) {
-          if (phase === 'before') evalBefore = parsed;
-          if (phase === 'after') evalAfter = parsed;
-        }
-      }
+  const coachMessage =
+    bestMove === userMoveUci
+      ? 'Excellent move. That matched the coach recommendation.'
+      : `Your move was playable. A stronger candidate was ${bestMove}.`;
 
-      if (line.startsWith('bestmove')) {
-        const parts = line.split(' ');
-        const move = parts[1];
+  await new Promise((resolve) => setTimeout(resolve, 350));
 
-        if (phase === 'before') {
-          bestMove = move;
-          phase = 'after';
-
-          engine.postMessage(`position fen ${fenAfter}`);
-          engine.postMessage(`go depth ${depth}`);
-          return;
-        }
-
-        clearTimeout(timeout);
-
-        let evalLoss = 0;
-
-        if (evalBefore !== null && evalAfter !== null) {
-          evalLoss = Math.max(0, evalBefore - evalAfter);
-        }
-
-        const moveScore = scoreMove(evalLoss);
-        const label = labelMove(moveScore);
-
-        const coachMessage =
-          bestMove === userMoveUci
-            ? `Perfect. That was the engine's best move.`
-            : `${label}. Best move was ${bestMove}. Your move lost about ${evalLoss} centipawns.`;
-
-        cleanup();
-
-        resolve({
-          bestMove,
-          moveScore,
-          coachMessage
-        });
-      }
-    };
-
-    engine.postMessage('uci');
-    engine.postMessage('isready');
-    engine.postMessage(`position fen ${fenBefore}`);
-    engine.postMessage(`go depth ${depth}`);
-  });
+  return {
+    bestMove,
+    moveScore,
+    coachMessage
+  };
 }
