@@ -4,6 +4,13 @@ import Login from './pages/Login';
 import ChessGame from './pages/ChessGame';
 import './styles.css';
 
+const SESSION_RESTORE_TIMEOUT_MS = 20000;
+const PROFILE_SETUP_TIMEOUT_MS = 15000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
@@ -13,12 +20,39 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
+async function waitForSession(timeoutMs = SESSION_RESTORE_TIMEOUT_MS) {
+  const start = Date.now();
+  let lastError = null;
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+
+      if (data?.session) {
+        return data.session;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    await sleep(300);
+  }
+
+  if (lastError) {
+    console.warn('Session restore warning:', lastError);
+  }
+
+  return null;
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
   const ensuredUserRef = useRef(null);
+  const bootedRef = useRef(false);
 
   async function ensureProfile(user) {
     if (!user?.id) return;
@@ -35,16 +69,22 @@ export default function App() {
 
     const displayName =
       user.user_metadata?.display_name ||
+      user.user_metadata?.full_name ||
       username;
 
     const { error } = await withTimeout(
-      supabase.from('profiles').upsert({
-        id: user.id,
-        email: user.email,
-        username,
-        display_name: displayName
-      }),
-      7000,
+      supabase.from('profiles').upsert(
+        {
+          id: user.id,
+          email: user.email,
+          username,
+          display_name: displayName
+        },
+        {
+          onConflict: 'id'
+        }
+      ),
+      PROFILE_SETUP_TIMEOUT_MS,
       'Profile setup'
     );
 
@@ -59,33 +99,38 @@ export default function App() {
 
     async function boot() {
       try {
+        setLoading(true);
         setSetupError('');
 
-        const { data, error } = await withTimeout(
-          supabase.auth.getSession(),
-          7000,
-          'Session check'
-        );
+        const restoredSession = await waitForSession();
 
-        if (error) throw error;
         if (!mounted) return;
 
-        const currentSession = data?.session || null;
-        setSession(currentSession);
+        setSession(restoredSession);
 
-        if (currentSession?.user) {
-          await ensureProfile(currentSession.user);
+        if (restoredSession?.user) {
+          await ensureProfile(restoredSession.user);
         } else {
           setProfileReady(false);
         }
       } catch (err) {
         console.error('ChessAI boot error:', err);
+
         if (!mounted) return;
+
         setSetupError(err.message || 'ChessAI could not load.');
-        setSession(null);
         setProfileReady(false);
+
+        /*
+          Important:
+          Do NOT force setSession(null) here.
+          A slow browser tab restore should not kick the user out.
+        */
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          bootedRef.current = true;
+          setLoading(false);
+        }
       }
     }
 
@@ -95,35 +140,77 @@ export default function App() {
       try {
         if (!mounted) return;
 
-        if (event === 'TOKEN_REFRESHED') {
-          setSession(newSession);
-          return;
-        }
-
         if (event === 'SIGNED_OUT') {
           ensuredUserRef.current = null;
           setSession(null);
           setProfileReady(false);
+          setSetupError('');
+          setLoading(false);
+          return;
+        }
+
+        if (event === 'TOKEN_REFRESHED') {
+          if (newSession) {
+            setSession(newSession);
+          }
           return;
         }
 
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
           setSetupError('');
-          setSession(newSession);
 
-          if (newSession?.user) {
-            await ensureProfile(newSession.user);
+          if (newSession) {
+            setSession(newSession);
+
+            if (newSession.user) {
+              await ensureProfile(newSession.user);
+            }
+          } else if (bootedRef.current) {
+            setSession(null);
+            setProfileReady(false);
           }
+
+          setLoading(false);
         }
       } catch (err) {
         console.error('Auth change error:', err);
         setSetupError(err.message || 'Could not set up your profile.');
+        setLoading(false);
       }
     });
+
+    async function refreshSessionOnReturn() {
+      if (document.visibilityState !== 'visible') return;
+
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (data?.session) {
+          setSession(data.session);
+
+          if (data.session.user) {
+            setSetupError('');
+            await ensureProfile(data.session.user);
+          }
+        }
+      } catch (err) {
+        console.warn('Session refresh on return failed:', err);
+        /*
+          Do not log them out here.
+          Tab switching can briefly interrupt auth storage access.
+        */
+      }
+    }
+
+    window.addEventListener('focus', refreshSessionOnReturn);
+    document.addEventListener('visibilitychange', refreshSessionOnReturn);
 
     return () => {
       mounted = false;
       listener?.subscription?.unsubscribe?.();
+      window.removeEventListener('focus', refreshSessionOnReturn);
+      document.removeEventListener('visibilitychange', refreshSessionOnReturn);
     };
   }, []);
 
@@ -141,8 +228,6 @@ export default function App() {
           <button
             onClick={async () => {
               await supabase.auth.signOut();
-              localStorage.clear();
-              sessionStorage.clear();
               window.location.reload();
             }}
           >
