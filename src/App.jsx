@@ -22,37 +22,31 @@ function withTimeout(promise, ms, label) {
 
 async function waitForSession(timeoutMs = SESSION_RESTORE_TIMEOUT_MS) {
   const start = Date.now();
-  let lastError = null;
 
   while (Date.now() - start < timeoutMs) {
-    try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-
-      if (data?.session) {
-        return data.session;
-      }
-    } catch (err) {
-      lastError = err;
-    }
-
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) return data.session;
     await sleep(300);
-  }
-
-  if (lastError) {
-    console.warn('Session restore warning:', lastError);
   }
 
   return null;
 }
 
+function getStoredGuest() {
+  try {
+    return JSON.parse(localStorage.getItem('chessai_guest') || 'null');
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
+  const [guest, setGuest] = useState(() => getStoredGuest());
   const [profileReady, setProfileReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
   const ensuredUserRef = useRef(null);
-  const bootedRef = useRef(false);
 
   async function ensureProfile(user) {
     if (!user?.id) return;
@@ -80,9 +74,7 @@ export default function App() {
           username,
           display_name: displayName
         },
-        {
-          onConflict: 'id'
-        }
+        { onConflict: 'id' }
       ),
       PROFILE_SETUP_TIMEOUT_MS,
       'Profile setup'
@@ -92,6 +84,22 @@ export default function App() {
 
     ensuredUserRef.current = user.id;
     setProfileReady(true);
+  }
+
+  function continueAsGuest(name = 'Guest') {
+    const guestUser = {
+      id: `guest_${crypto.randomUUID()}`,
+      name: name.trim() || 'Guest'
+    };
+
+    localStorage.setItem('chessai_guest', JSON.stringify(guestUser));
+    setGuest(guestUser);
+  }
+
+  async function signOutGuestAndUser() {
+    localStorage.removeItem('chessai_guest');
+    setGuest(null);
+    await supabase.auth.signOut();
   }
 
   useEffect(() => {
@@ -115,22 +123,11 @@ export default function App() {
         }
       } catch (err) {
         console.error('ChessAI boot error:', err);
-
         if (!mounted) return;
-
         setSetupError(err.message || 'ChessAI could not load.');
         setProfileReady(false);
-
-        /*
-          Important:
-          Do NOT force setSession(null) here.
-          A slow browser tab restore should not kick the user out.
-        */
       } finally {
-        if (mounted) {
-          bootedRef.current = true;
-          setLoading(false);
-        }
+        if (mounted) setLoading(false);
       }
     }
 
@@ -149,27 +146,11 @@ export default function App() {
           return;
         }
 
-        if (event === 'TOKEN_REFRESHED') {
-          if (newSession) {
-            setSession(newSession);
-          }
-          return;
-        }
-
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-          setSetupError('');
-
-          if (newSession) {
-            setSession(newSession);
-
-            if (newSession.user) {
-              await ensureProfile(newSession.user);
-            }
-          } else if (bootedRef.current) {
-            setSession(null);
-            setProfileReady(false);
-          }
-
+        if (newSession) {
+          setSession(newSession);
+          setGuest(null);
+          localStorage.removeItem('chessai_guest');
+          await ensureProfile(newSession.user);
           setLoading(false);
         }
       } catch (err) {
@@ -179,44 +160,13 @@ export default function App() {
       }
     });
 
-    async function refreshSessionOnReturn() {
-      if (document.visibilityState !== 'visible') return;
-
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-
-        if (data?.session) {
-          setSession(data.session);
-
-          if (data.session.user) {
-            setSetupError('');
-            await ensureProfile(data.session.user);
-          }
-        }
-      } catch (err) {
-        console.warn('Session refresh on return failed:', err);
-        /*
-          Do not log them out here.
-          Tab switching can briefly interrupt auth storage access.
-        */
-      }
-    }
-
-    window.addEventListener('focus', refreshSessionOnReturn);
-    document.addEventListener('visibilitychange', refreshSessionOnReturn);
-
     return () => {
       mounted = false;
       listener?.subscription?.unsubscribe?.();
-      window.removeEventListener('focus', refreshSessionOnReturn);
-      document.removeEventListener('visibilitychange', refreshSessionOnReturn);
     };
   }, []);
 
-  if (loading) {
-    return <div className="loading-screen">Loading ChessAI...</div>;
-  }
+  if (loading) return <div className="loading-screen">Loading ChessAI...</div>;
 
   if (setupError) {
     return (
@@ -224,25 +174,25 @@ export default function App() {
         <div>
           <h2>ChessAI setup error</h2>
           <p>{setupError}</p>
-
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              window.location.reload();
-            }}
-          >
-            Reset Login
-          </button>
+          <button onClick={signOutGuestAndUser}>Reset Login</button>
         </div>
       </div>
     );
   }
 
-  if (!session) return <Login />;
+  if (!session && !guest) {
+    return <Login onGuest={continueAsGuest} />;
+  }
 
-  if (!profileReady) {
+  if (session && !profileReady) {
     return <div className="loading-screen">Setting up your profile...</div>;
   }
 
-  return <ChessGame session={session} />;
+  return (
+    <ChessGame
+      session={session}
+      guest={guest}
+      onSignOut={signOutGuestAndUser}
+    />
+  );
 }
