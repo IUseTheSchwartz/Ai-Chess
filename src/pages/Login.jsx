@@ -10,39 +10,43 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const isSignup = mode === 'signup';
+
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
 
     try {
-      if (mode === 'signup') {
+      if (isSignup) {
+        const cleanUsername = username.trim();
+
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: email.trim(),
           password,
           options: {
             data: {
-              username,
-              display_name: username
+              username: cleanUsername,
+              display_name: cleanUsername
             }
           }
         });
 
         if (error) throw error;
 
-        const user = data.user;
-
-        if (user) {
-          await supabase.from('profiles').upsert({
-            id: user.id,
-            email,
-            username,
-            display_name: username
+        if (data.user) {
+          const { error: profileError } = await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: email.trim(),
+            username: cleanUsername,
+            display_name: cleanUsername
           });
+
+          if (profileError) throw profileError;
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: email.trim(),
           password
         });
 
@@ -56,59 +60,96 @@ export default function Login() {
   }
 
   return (
-    <div className="login-page">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Momentum Chess</h1>
+    <div className="auth-page">
+      <div className="auth-bg-glow auth-bg-glow-one" />
+      <div className="auth-bg-glow auth-bg-glow-two" />
+
+      <section className="auth-hero">
+        <div className="brand-pill">♟ AI-powered chess training</div>
+
+        <h1>
+          Play sharper chess with <span>ChessAI</span>
+        </h1>
 
         <p>
-          {mode === 'signup'
-            ? 'Create your chess account.'
-            : 'Login to play chess.'}
+          Challenge the bot, review every move, and get instant AI feedback after your move is locked in.
         </p>
 
-        {mode === 'signup' && (
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-            required
-          />
+        <div className="feature-grid">
+          <div>
+            <strong>Move ratings</strong>
+            <small>Score every move from 1–10.</small>
+          </div>
+          <div>
+            <strong>Best move coach</strong>
+            <small>See what you should have played.</small>
+          </div>
+          <div>
+            <strong>Game history</strong>
+            <small>Save your progress and improve.</small>
+          </div>
+        </div>
+      </section>
+
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <div className="auth-card-header">
+          <div className="logo-mark">♞</div>
+          <div>
+            <h2>{isSignup ? 'Create account' : 'Welcome back'}</h2>
+            <p>{isSignup ? 'Start training in seconds.' : 'Login to continue playing.'}</p>
+          </div>
+        </div>
+
+        {isSignup && (
+          <label>
+            Username
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Choose a username"
+              required
+            />
+          </label>
         )}
 
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          type="email"
-          required
-        />
+        <label>
+          Email
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            type="email"
+            required
+          />
+        </label>
 
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          type="password"
-          minLength={6}
-          required
-        />
+        <label>
+          Password
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            type="password"
+            minLength={6}
+            required
+          />
+        </label>
 
         {errorMsg && <div className="error-box">{errorMsg}</div>}
 
-        <button disabled={loading}>
-          {loading ? 'Please wait...' : mode === 'signup' ? 'Create Account' : 'Login'}
+        <button className="primary-auth-btn" disabled={loading}>
+          {loading ? 'Please wait...' : isSignup ? 'Create free account' : 'Login'}
         </button>
 
         <button
           type="button"
-          className="link-button"
+          className="switch-auth-btn"
           onClick={() => {
-            setMode(mode === 'signup' ? 'login' : 'signup');
+            setMode(isSignup ? 'login' : 'signup');
             setErrorMsg('');
           }}
         >
-          {mode === 'signup'
-            ? 'Already have an account? Login'
-            : 'Need an account? Create one'}
+          {isSignup ? 'Already have an account? Login' : 'New here? Create an account'}
         </button>
       </form>
     </div>
