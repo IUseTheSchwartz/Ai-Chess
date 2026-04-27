@@ -15,7 +15,7 @@ export default function MainMenu({
         <h1>Play. Review. Improve.</h1>
 
         <p>
-          Play the bot, challenge friends, share private links, and save stats when logged in.
+          Play the bot, challenge friends, share private links, and build separate bot and friend ratings.
         </p>
 
         <div className="home-actions">
@@ -29,23 +29,23 @@ export default function MainMenu({
       </section>
 
       <section className="mode-grid">
-        <div className="mode-card active" onClick={onStartBot}>
+        <div className="mode-card active">
           <span>♟</span>
           <h3>Play Bot</h3>
-          <p>Start a quick game and get coached after every move.</p>
+          <p>Use the Play Bot button above to start a coached match.</p>
         </div>
 
-        <div className="mode-card active" onClick={onOpenFriends}>
+        <div className="mode-card active">
           <span>🤝</span>
           <h3>Challenge Friends</h3>
-          <p>Send friend requests or create a shareable invite link.</p>
+          <p>Use the Play Friend button above to host, join, or search players.</p>
         </div>
 
         <div className="mode-card active">
           <span>📈</span>
           <h3>Stats</h3>
           {isGuest ? (
-            <p>Create an account to save stats.</p>
+            <p>Create an account to save ratings and stats.</p>
           ) : (
             <p>
               {stats?.games_played || 0} games • {stats?.wins || 0} wins •{' '}
