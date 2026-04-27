@@ -3,7 +3,7 @@ export function uciFromMove(move) {
 }
 
 export function makeInviteCode() {
-  return crypto.randomUUID().replaceAll('-', '').slice(0, 14);
+  return crypto.randomUUID().replaceAll('-', '').slice(0, 14).toUpperCase();
 }
 
 export function sideToTurn(side) {
@@ -53,4 +53,21 @@ export function getGameResult(chess, timedOutSide = null) {
 
 export function playerName(profile, fallback = 'Unknown player') {
   return profile?.display_name || profile?.username || profile?.email || fallback;
+}
+
+export function calculateElo({
+  playerRating = 800,
+  opponentRating = 800,
+  result = 0.5,
+  gamesCompleted = 0
+}) {
+  const k = gamesCompleted < 5 ? 48 : gamesCompleted < 20 ? 32 : 20;
+  const expected = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+  const next = Math.round(playerRating + k * (result - expected));
+  return Math.max(100, Math.min(3200, next));
+}
+
+export function ratingLabel(rating, gamesCompleted = 0) {
+  if (gamesCompleted < 5) return `Provisional ${rating}`;
+  return `${rating}`;
 }
