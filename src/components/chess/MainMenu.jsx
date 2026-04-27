@@ -1,10 +1,18 @@
+import { ratingLabel } from '../../lib/chessHelpers';
+
 export default function MainMenu({
   isGuest,
   playerName,
   stats,
+  profile,
   onStartBot,
   onOpenFriends
 }) {
+  const botRating = profile?.bot_rating || 800;
+  const friendRating = profile?.friend_rating || 800;
+  const botGames = profile?.bot_games_completed || 0;
+  const friendGames = profile?.friend_games_completed || 0;
+
   return (
     <main className="home">
       <section className="home-hero">
@@ -31,21 +39,29 @@ export default function MainMenu({
       <section className="mode-grid">
         <div className="mode-card active">
           <span>♟</span>
-          <h3>Play Bot</h3>
-          <p>Use the Play Bot button above to start a coached match.</p>
+          <h3>Bot Rating</h3>
+          {isGuest ? (
+            <p>Create an account to save your bot rating.</p>
+          ) : (
+            <p>{ratingLabel(botRating, botGames)} • {botGames}/5 placement games</p>
+          )}
         </div>
 
         <div className="mode-card active">
           <span>🤝</span>
-          <h3>Challenge Friends</h3>
-          <p>Use the Play Friend button above to host, join, or search players.</p>
+          <h3>Friend Rating</h3>
+          {isGuest ? (
+            <p>Create an account to save your friend rating.</p>
+          ) : (
+            <p>{ratingLabel(friendRating, friendGames)} • {friendGames}/5 placement games</p>
+          )}
         </div>
 
         <div className="mode-card active">
           <span>📈</span>
           <h3>Stats</h3>
           {isGuest ? (
-            <p>Create an account to save ratings and stats.</p>
+            <p>Create an account to save stats.</p>
           ) : (
             <p>
               {stats?.games_played || 0} games • {stats?.wins || 0} wins •{' '}
