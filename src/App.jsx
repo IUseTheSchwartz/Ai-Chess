@@ -4,12 +4,8 @@ import Login from './pages/Login';
 import ChessGame from './pages/ChessGame';
 import './styles.css';
 
-const SESSION_RESTORE_TIMEOUT_MS = 20000;
-const PROFILE_SETUP_TIMEOUT_MS = 15000;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const QUICK_SESSION_TIMEOUT_MS = 1800;
+const PROFILE_SETUP_TIMEOUT_MS = 8000;
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
@@ -20,18 +16,6 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-async function waitForSession(timeoutMs = SESSION_RESTORE_TIMEOUT_MS) {
-  const start = Date.now();
-
-  while (Date.now() - start < timeoutMs) {
-    const { data } = await supabase.auth.getSession();
-    if (data?.session) return data.session;
-    await sleep(300);
-  }
-
-  return null;
-}
-
 function getStoredGuest() {
   try {
     return JSON.parse(localStorage.getItem('chessai_guest') || 'null');
@@ -40,21 +24,35 @@ function getStoredGuest() {
   }
 }
 
+function getStoredTheme() {
+  return localStorage.getItem('chessai_theme') || 'light';
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [guest, setGuest] = useState(() => getStoredGuest());
-  const [profileReady, setProfileReady] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [setupError, setSetupError] = useState('');
+  const [theme, setTheme] = useState(() => getStoredTheme());
+
   const ensuredUserRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  const isDark = theme === 'dark';
+
+  useEffect(() => {
+    document.body.classList.toggle('dark-mode', isDark);
+    localStorage.setItem('chessai_theme', theme);
+  }, [theme, isDark]);
+
+  function toggleTheme() {
+    setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+  }
 
   async function ensureProfile(user) {
     if (!user?.id) return;
 
-    if (ensuredUserRef.current === user.id) {
-      setProfileReady(true);
-      return;
-    }
+    if (ensuredUserRef.current === user.id) return;
 
     const username =
       user.user_metadata?.username ||
@@ -83,66 +81,76 @@ export default function App() {
     if (error) throw error;
 
     ensuredUserRef.current = user.id;
-    setProfileReady(true);
   }
 
   function continueAsGuest(name = 'Guest') {
-    const guestUser = {
-      id: `guest_${crypto.randomUUID()}`,
-      name: name.trim() || 'Guest'
-    };
+    const existingGuest = getStoredGuest();
+
+    const guestUser =
+      existingGuest || {
+        id: `guest_${crypto.randomUUID()}`,
+        name: name.trim() || 'Guest'
+      };
 
     localStorage.setItem('chessai_guest', JSON.stringify(guestUser));
     setGuest(guestUser);
+    setSession(null);
+    setCheckingSession(false);
   }
 
   async function signOutGuestAndUser() {
     localStorage.removeItem('chessai_guest');
     setGuest(null);
+    setSession(null);
+    ensuredUserRef.current = null;
     await supabase.auth.signOut();
   }
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
-    async function boot() {
+    async function bootFast() {
+      setSetupError('');
+
       try {
-        setLoading(true);
-        setSetupError('');
+        const { data } = await withTimeout(
+          supabase.auth.getSession(),
+          QUICK_SESSION_TIMEOUT_MS,
+          'Session check'
+        );
 
-        const restoredSession = await waitForSession();
+        if (!mountedRef.current) return;
 
-        if (!mounted) return;
+        if (data?.session) {
+          setSession(data.session);
+          setGuest(null);
+          localStorage.removeItem('chessai_guest');
 
-        setSession(restoredSession);
-
-        if (restoredSession?.user) {
-          await ensureProfile(restoredSession.user);
-        } else {
-          setProfileReady(false);
+          ensureProfile(data.session.user).catch((err) => {
+            console.error('Profile setup error:', err);
+            if (mountedRef.current) {
+              setSetupError(err.message || 'Could not set up your profile.');
+            }
+          });
         }
       } catch (err) {
-        console.error('ChessAI boot error:', err);
-        if (!mounted) return;
-        setSetupError(err.message || 'ChessAI could not load.');
-        setProfileReady(false);
+        console.warn('Fast session restore skipped:', err);
       } finally {
-        if (mounted) setLoading(false);
+        if (mountedRef.current) setCheckingSession(false);
       }
     }
 
-    boot();
+    bootFast();
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       try {
-        if (!mounted) return;
+        if (!mountedRef.current) return;
 
         if (event === 'SIGNED_OUT') {
           ensuredUserRef.current = null;
           setSession(null);
-          setProfileReady(false);
           setSetupError('');
-          setLoading(false);
+          setCheckingSession(false);
           return;
         }
 
@@ -150,28 +158,49 @@ export default function App() {
           setSession(newSession);
           setGuest(null);
           localStorage.removeItem('chessai_guest');
+          setCheckingSession(false);
+
           await ensureProfile(newSession.user);
-          setLoading(false);
         }
       } catch (err) {
         console.error('Auth change error:', err);
         setSetupError(err.message || 'Could not set up your profile.');
-        setLoading(false);
+        setCheckingSession(false);
       }
     });
 
+    async function refreshOnReturn() {
+      try {
+        const { data } = await supabase.auth.getSession();
+
+        if (data?.session) {
+          setSession(data.session);
+          setGuest(null);
+          localStorage.removeItem('chessai_guest');
+
+          ensureProfile(data.session.user).catch(console.error);
+        }
+      } catch (err) {
+        console.warn('Session refresh failed:', err);
+      }
+    }
+
+    window.addEventListener('focus', refreshOnReturn);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshOnReturn();
+    });
+
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       listener?.subscription?.unsubscribe?.();
+      window.removeEventListener('focus', refreshOnReturn);
     };
   }, []);
 
-  if (loading) return <div className="loading-screen">Loading ChessAI...</div>;
-
   if (setupError) {
     return (
-      <div className="loading-screen" style={{ padding: 24, textAlign: 'center' }}>
-        <div>
+      <div className="loading-screen">
+        <div className="setup-error-card">
           <h2>ChessAI setup error</h2>
           <p>{setupError}</p>
           <button onClick={signOutGuestAndUser}>Reset Login</button>
@@ -181,11 +210,14 @@ export default function App() {
   }
 
   if (!session && !guest) {
-    return <Login onGuest={continueAsGuest} />;
-  }
-
-  if (session && !profileReady) {
-    return <div className="loading-screen">Setting up your profile...</div>;
+    return (
+      <Login
+        onGuest={continueAsGuest}
+        checkingSession={checkingSession}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+    );
   }
 
   return (
@@ -193,6 +225,8 @@ export default function App() {
       session={session}
       guest={guest}
       onSignOut={signOutGuestAndUser}
+      theme={theme}
+      onToggleTheme={toggleTheme}
     />
   );
 }
