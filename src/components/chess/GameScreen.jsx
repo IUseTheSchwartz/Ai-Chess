@@ -1,5 +1,5 @@
 import { Chessboard } from 'react-chessboard';
-import { formatClock, playerName as getPlayerName } from '../../lib/chessHelpers';
+import { formatClock } from '../../lib/chessHelpers';
 
 function getSideName(gameRow, side) {
   if (!gameRow) return side === 'white' ? 'White' : 'Black';
@@ -12,6 +12,8 @@ function getSideName(gameRow, side) {
       'Waiting...'
     );
   }
+
+  if (gameRow.mode === 'bot') return 'Bot';
 
   return (
     gameRow.black_profile?.display_name ||
@@ -58,18 +60,16 @@ export default function GameScreen({
           {thinking && <div className="thinking-pill">Thinking...</div>}
         </div>
 
-        {gameRow?.mode === 'friend' && (
-          <div className="players-bar">
-            <div className={mySide === 'white' ? 'player-chip active' : 'player-chip'}>
-              <small>White</small>
-              <strong>{whiteName}</strong>
-            </div>
-            <div className={mySide === 'black' ? 'player-chip active' : 'player-chip'}>
-              <small>Black</small>
-              <strong>{blackName}</strong>
-            </div>
+        <div className="players-bar">
+          <div className={mySide === 'white' ? 'player-chip active' : 'player-chip'}>
+            <small>White</small>
+            <strong>{whiteName}</strong>
           </div>
-        )}
+          <div className={mySide === 'black' ? 'player-chip active' : 'player-chip'}>
+            <small>Black</small>
+            <strong>{blackName}</strong>
+          </div>
+        </div>
 
         {gameRow?.status === 'waiting' && (
           <div className="waiting-lobby">
@@ -128,9 +128,7 @@ export default function GameScreen({
           <h3>AI Coach</h3>
 
           {gameRow?.mode === 'friend' ? (
-            <p className="muted">
-              AI coaching is active for bot games. Friend analysis can be added later.
-            </p>
+            <p className="muted">AI coaching is active for bot games. Friend analysis can be added later.</p>
           ) : !coach ? (
             <p className="muted">Make a move to get your first review.</p>
           ) : (
