@@ -16,10 +16,6 @@ function sideToTurn(side) {
   return side === 'w' ? 'white' : 'black';
 }
 
-function turnToSide(turn) {
-  return turn === 'white' ? 'w' : 'b';
-}
-
 function formatClock(seconds) {
   const safe = Math.max(0, Math.floor(seconds || 0));
   const mins = Math.floor(safe / 60);
@@ -60,7 +56,17 @@ function getGameResult(chess, timedOutSide = null) {
   };
 }
 
-export default function ChessGame({ session, guest, onSignOut }) {
+function PlayerName({ profile, fallback = 'Unknown player' }) {
+  return profile?.display_name || profile?.username || profile?.email || fallback;
+}
+
+export default function ChessGame({
+  session,
+  guest,
+  onSignOut,
+  theme = 'light',
+  onToggleTheme
+}) {
   const [screen, setScreen] = useState('menu');
   const [game, setGame] = useState(() => new Chess());
   const [gameRow, setGameRow] = useState(null);
@@ -83,7 +89,11 @@ export default function ChessGame({ session, guest, onSignOut }) {
 
   const isGuest = !session?.user;
   const userId = session?.user?.id || null;
-  const playerName = session?.user?.user_metadata?.display_name || session?.user?.email || guest?.name || 'Guest';
+  const playerName =
+    session?.user?.user_metadata?.display_name ||
+    session?.user?.email ||
+    guest?.name ||
+    'Guest';
 
   const fen = game.fen();
 
@@ -102,6 +112,7 @@ export default function ChessGame({ session, guest, onSignOut }) {
   const isMyTurn = gameRow?.turn === mySide;
 
   const status = useMemo(() => {
+    if (gameRow?.status === 'waiting') return 'Waiting for opponent';
     if (gameRow?.status === 'complete') return gameRow.result_reason || 'Game complete';
 
     if (game.isCheckmate()) return 'Checkmate';
@@ -115,32 +126,6 @@ export default function ChessGame({ session, guest, onSignOut }) {
     return game.turn() === 'w' ? 'Your turn' : 'Bot thinking';
   }, [fen, gameRow, isMyTurn]);
 
-  async function updateStatsForGame(row, result) {
-    if (!row || row.stats_saved) return;
-
-    const whiteId = row.white_player_id;
-    const blackId = row.black_player_id;
-
-    const ids = [whiteId, blackId].filter(Boolean);
-    if (ids.length === 0) return;
-
-    for (const id of ids) {
-      const isWinner = row.winner_id && row.winner_id === id;
-      const isDraw = !row.winner_id && result.status === 'complete';
-      const isLoser = row.winner_id && row.winner_id !== id;
-
-      await supabase.rpc('increment_user_stats_safe', {
-        target_user_id: id,
-        add_games_played: 1,
-        add_wins: isWinner ? 1 : 0,
-        add_losses: isLoser ? 1 : 0,
-        add_draws: isDraw ? 1 : 0,
-        add_bot_games: row.mode === 'bot' ? 1 : 0,
-        add_friend_games: row.mode === 'friend' ? 1 : 0
-      }).catch(() => {});
-    }
-  }
-
   async function loadStats() {
     if (!userId) return;
 
@@ -150,14 +135,16 @@ export default function ChessGame({ session, guest, onSignOut }) {
       .eq('user_id', userId)
       .maybeSingle();
 
-    setStats(data || {
-      games_played: 0,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      bot_games: 0,
-      friend_games: 0
-    });
+    setStats(
+      data || {
+        games_played: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        bot_games: 0,
+        friend_games: 0
+      }
+    );
   }
 
   async function loadFriends() {
@@ -303,9 +290,12 @@ export default function ChessGame({ session, guest, onSignOut }) {
     let whiteGuestName = null;
     let blackGuestName = null;
 
-    const side = selectedSide === 'random'
-      ? (Math.random() > 0.5 ? 'white' : 'black')
-      : selectedSide;
+    const side =
+      selectedSide === 'random'
+        ? Math.random() > 0.5
+          ? 'white'
+          : 'black'
+        : selectedSide;
 
     if (side === 'white') {
       whitePlayerId = userId;
@@ -379,6 +369,9 @@ export default function ChessGame({ session, guest, onSignOut }) {
     } else if (!row.black_player_id && !row.black_guest_name) {
       updates.black_player_id = userId;
       updates.black_guest_name = isGuest ? playerName : null;
+    } else {
+      alert('This game already has two players.');
+      return;
     }
 
     updates.status = 'active';
@@ -611,7 +604,7 @@ export default function ChessGame({ session, guest, onSignOut }) {
     if (!gameRow || screen !== 'game') return;
     if (gameRow.status !== 'active') return;
 
-    const timer = setInterval(async () => {
+    const timer = setInterval(() => {
       if (gameRow.turn === 'white') {
         setLocalWhiteTime((prev) => Math.max(0, prev - 1));
       } else {
@@ -643,19 +636,53 @@ export default function ChessGame({ session, guest, onSignOut }) {
     if (data) setGameRow(data);
   }
 
+  function Nav({ showMenu = false, showGameActions = false }) {
+    return (
+      <nav className="nav">
+        <div className="brand" onClick={() => setScreen('menu')}>
+          <div className="brand-icon">♞</div>
+          <span>ChessAI</span>
+        </div>
+
+        <div className="nav-actions">
+          <button className="theme-toggle-btn" type="button" onClick={onToggleTheme}>
+            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+          </button>
+
+          {showMenu && (
+            <button className="ghost-btn" onClick={() => setScreen('menu')}>
+              Menu
+            </button>
+          )}
+
+          {showGameActions && (
+            <>
+              <button className="ghost-btn" onClick={startNewGame}>
+                New Bot Game
+              </button>
+
+              {gameRow?.status === 'active' && (
+                <button className="ghost-btn" onClick={resignGame}>
+                  Resign
+                </button>
+              )}
+            </>
+          )}
+
+          {!showGameActions && !showMenu && (
+            <button className="ghost-btn" onClick={onSignOut}>
+              {isGuest ? 'Exit Guest' : 'Logout'}
+            </button>
+          )}
+        </div>
+      </nav>
+    );
+  }
+
   if (screen === 'menu') {
     return (
       <div className="site-shell">
-        <nav className="nav">
-          <div className="brand">
-            <div className="brand-icon">♞</div>
-            <span>ChessAI</span>
-          </div>
-
-          <button className="ghost-btn" onClick={onSignOut}>
-            {isGuest ? 'Exit Guest' : 'Logout'}
-          </button>
-        </nav>
+        <Nav />
 
         <main className="home">
           <section className="home-hero">
@@ -670,8 +697,12 @@ export default function ChessGame({ session, guest, onSignOut }) {
             </p>
 
             <div className="home-actions">
-              <button className="main-btn" onClick={startNewGame}>Play Bot</button>
-              <button className="soft-btn" onClick={() => setScreen('friends')}>Play Friend</button>
+              <button className="main-btn" onClick={startNewGame}>
+                Play Bot
+              </button>
+              <button className="soft-btn" onClick={() => setScreen('friends')}>
+                Play Friend
+              </button>
             </div>
           </section>
 
@@ -695,7 +726,8 @@ export default function ChessGame({ session, guest, onSignOut }) {
                 <p>Create an account to save stats.</p>
               ) : (
                 <p>
-                  {stats?.games_played || 0} games • {stats?.wins || 0} wins • {stats?.losses || 0} losses • {stats?.draws || 0} draws
+                  {stats?.games_played || 0} games • {stats?.wins || 0} wins •{' '}
+                  {stats?.losses || 0} losses • {stats?.draws || 0} draws
                 </p>
               )}
             </div>
@@ -708,130 +740,204 @@ export default function ChessGame({ session, guest, onSignOut }) {
   if (screen === 'friends') {
     return (
       <div className="site-shell">
-        <nav className="nav">
-          <div className="brand" onClick={() => setScreen('menu')}>
-            <div className="brand-icon">♞</div>
-            <span>ChessAI</span>
-          </div>
+        <Nav showMenu />
 
-          <button className="ghost-btn" onClick={() => setScreen('menu')}>Menu</button>
-        </nav>
-
-        <main className="home">
-          <section className="home-hero">
-            <div className="eyebrow">Friend games</div>
-            <h1>Challenge a friend</h1>
-            <p>Choose your side, pick a timer, and send a private game link.</p>
-
-            <div className="feature-grid">
-              <label>
-                Side
-                <select value={selectedSide} onChange={(e) => setSelectedSide(e.target.value)}>
-                  <option value="white">Play White</option>
-                  <option value="black">Play Black</option>
-                  <option value="random">Random</option>
-                </select>
-              </label>
-
-              <label>
-                Timer
-                <select value={timeControl} onChange={(e) => setTimeControl(Number(e.target.value))}>
-                  <option value={60}>1 minute</option>
-                  <option value={180}>3 minutes</option>
-                  <option value={300}>5 minutes</option>
-                  <option value={600}>10 minutes</option>
-                  <option value={900}>15 minutes</option>
-                  <option value={1800}>30 minutes</option>
-                </select>
-              </label>
-
-              <button className="main-btn" onClick={() => createFriendGame()}>
-                Create Share Link
-              </button>
+        <main className="friends-page">
+          <section className="friends-hero">
+            <div>
+              <div className="eyebrow">Friend games</div>
+              <h1>Play friends your way.</h1>
+              <p>
+                Pick a side, choose a timer, challenge a friend, or create a private link anyone can join.
+              </p>
             </div>
 
-            {inviteLink && (
-              <div className="analysis-card" style={{ marginTop: 18 }}>
-                <h3>Invite Link</h3>
-                <p style={{ wordBreak: 'break-all' }}>{inviteLink}</p>
-                <button
-                  className="soft-btn"
-                  onClick={() => navigator.clipboard.writeText(inviteLink)}
-                >
-                  Copy Link
-                </button>
-              </div>
-            )}
-
-            <div className="analysis-card" style={{ marginTop: 18 }}>
-              <h3>Join Game Link</h3>
-              <input
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                placeholder="Paste invite code"
-              />
-              <button className="soft-btn" onClick={() => joinFriendGame()}>
-                Join Game
-              </button>
+            <div className="friends-quick-card">
+              <span>⚡</span>
+              <strong>Quick match setup</strong>
+              <small>Private invite links support logged-in users and guests.</small>
             </div>
           </section>
 
-          {!isGuest && (
-            <section className="mode-grid">
-              <div className="mode-card active">
-                <h3>Find Players</h3>
-                <input
-                  value={friendSearch}
-                  onChange={(e) => setFriendSearch(e.target.value)}
-                  placeholder="Search username or email"
-                />
-                <button className="soft-btn" onClick={searchUsers}>Search</button>
+          <section className="friends-layout">
+            <div className="friends-main-stack">
+              <div className="friend-panel">
+                <div className="friend-panel-header">
+                  <div>
+                    <h2>Create Match</h2>
+                    <p>Choose your side and timer before creating the invite.</p>
+                  </div>
+                </div>
 
-                {friendResults.map((user) => (
-                  <p key={user.id}>
-                    {user.display_name || user.username || user.email}
-                    <button className="soft-btn" onClick={() => sendFriendRequest(user.id)}>
-                      Add
+                <div className="match-settings-grid">
+                  <label>
+                    Side
+                    <select value={selectedSide} onChange={(e) => setSelectedSide(e.target.value)}>
+                      <option value="white">Play White</option>
+                      <option value="black">Play Black</option>
+                      <option value="random">Random</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Timer
+                    <select value={timeControl} onChange={(e) => setTimeControl(Number(e.target.value))}>
+                      <option value={60}>1 minute</option>
+                      <option value={180}>3 minutes</option>
+                      <option value={300}>5 minutes</option>
+                      <option value={600}>10 minutes</option>
+                      <option value={900}>15 minutes</option>
+                      <option value={1800}>30 minutes</option>
+                    </select>
+                  </label>
+
+                  <button className="main-btn" onClick={() => createFriendGame()}>
+                    Create Share Link
+                  </button>
+                </div>
+
+                {inviteLink && (
+                  <div className="invite-box">
+                    <small>Your invite link</small>
+                    <p>{inviteLink}</p>
+                    <button className="soft-btn" onClick={() => navigator.clipboard.writeText(inviteLink)}>
+                      Copy Link
                     </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="friend-panel">
+                <div className="friend-panel-header">
+                  <div>
+                    <h2>Join Game</h2>
+                    <p>Paste a friend’s invite code or open their shared link.</p>
+                  </div>
+                </div>
+
+                <div className="join-row">
+                  <input
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value)}
+                    placeholder="Paste invite code"
+                  />
+                  <button className="soft-btn" onClick={() => joinFriendGame()}>
+                    Join
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <aside className="friends-side-stack">
+              {isGuest ? (
+                <div className="friend-panel">
+                  <h2>Guest Mode</h2>
+                  <p className="muted">
+                    You can play using invite links, but friend lists and saved stats require an account.
                   </p>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div className="friend-panel">
+                    <div className="friend-panel-header">
+                      <div>
+                        <h2>Find Players</h2>
+                        <p>Search by username, display name, or email.</p>
+                      </div>
+                    </div>
 
-              <div className="mode-card active">
-                <h3>Friend Requests</h3>
-                {requests.length === 0 ? (
-                  <p>No pending requests.</p>
-                ) : (
-                  requests.map((request) => (
-                    <p key={request.id}>
-                      {request.profiles?.display_name || request.profiles?.username || request.profiles?.email}
-                      <button className="soft-btn" onClick={() => acceptRequest(request)}>Accept</button>
-                      <button className="ghost-btn" onClick={() => denyRequest(request.id)}>Deny</button>
-                    </p>
-                  ))
-                )}
-              </div>
-
-              <div className="mode-card active">
-                <h3>Friends</h3>
-                {friends.length === 0 ? (
-                  <p>No friends yet.</p>
-                ) : (
-                  friends.map((friend) => (
-                    <p key={friend.friend_id}>
-                      {friend.profiles?.display_name || friend.profiles?.username || friend.profiles?.email}
-                      <button
-                        className="soft-btn"
-                        onClick={() => createFriendGame(friend.friend_id)}
-                      >
-                        Challenge
+                    <div className="join-row">
+                      <input
+                        value={friendSearch}
+                        onChange={(e) => setFriendSearch(e.target.value)}
+                        placeholder="Search player"
+                      />
+                      <button className="soft-btn" onClick={searchUsers}>
+                        Search
                       </button>
-                    </p>
-                  ))
-                )}
-              </div>
-            </section>
-          )}
+                    </div>
+
+                    <div className="people-list">
+                      {friendResults.length === 0 ? (
+                        <p className="muted">Search for someone to add them.</p>
+                      ) : (
+                        friendResults.map((user) => (
+                          <div className="person-row" key={user.id}>
+                            <div>
+                              <strong>{PlayerName({ profile: user })}</strong>
+                              <small>{user.elo || 800} ELO</small>
+                            </div>
+                            <button className="soft-btn" onClick={() => sendFriendRequest(user.id)}>
+                              Add
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="friend-panel">
+                    <div className="friend-panel-header">
+                      <div>
+                        <h2>Requests</h2>
+                        <p>{requests.length} pending</p>
+                      </div>
+                    </div>
+
+                    <div className="people-list">
+                      {requests.length === 0 ? (
+                        <p className="muted">No pending requests.</p>
+                      ) : (
+                        requests.map((request) => (
+                          <div className="person-row" key={request.id}>
+                            <div>
+                              <strong>{PlayerName({ profile: request.profiles })}</strong>
+                              <small>Wants to be friends</small>
+                            </div>
+                            <div className="row-actions">
+                              <button className="soft-btn" onClick={() => acceptRequest(request)}>
+                                Accept
+                              </button>
+                              <button className="ghost-btn" onClick={() => denyRequest(request.id)}>
+                                Deny
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="friend-panel">
+                    <div className="friend-panel-header">
+                      <div>
+                        <h2>Friends</h2>
+                        <p>{friends.length} saved</p>
+                      </div>
+                    </div>
+
+                    <div className="people-list">
+                      {friends.length === 0 ? (
+                        <p className="muted">No friends yet.</p>
+                      ) : (
+                        friends.map((friend) => (
+                          <div className="person-row" key={friend.friend_id}>
+                            <div>
+                              <strong>{PlayerName({ profile: friend.profiles })}</strong>
+                              <small>{friend.profiles?.elo || 800} ELO</small>
+                            </div>
+                            <button className="soft-btn" onClick={() => createFriendGame(friend.friend_id)}>
+                              Challenge
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </aside>
+          </section>
         </main>
       </div>
     );
@@ -839,20 +945,7 @@ export default function ChessGame({ session, guest, onSignOut }) {
 
   return (
     <div className="site-shell">
-      <nav className="nav">
-        <div className="brand" onClick={() => setScreen('menu')}>
-          <div className="brand-icon">♞</div>
-          <span>ChessAI</span>
-        </div>
-
-        <div className="nav-actions">
-          <button className="ghost-btn" onClick={() => setScreen('menu')}>Menu</button>
-          <button className="ghost-btn" onClick={startNewGame}>New Bot Game</button>
-          {gameRow?.status === 'active' && (
-            <button className="ghost-btn" onClick={resignGame}>Resign</button>
-          )}
-        </div>
-      </nav>
+      <Nav showMenu showGameActions />
 
       <main className="play-layout">
         <section className="board-wrap">
@@ -862,9 +955,8 @@ export default function ChessGame({ session, guest, onSignOut }) {
               <p>{status}</p>
             </div>
 
-            <div>
+            <div className="clock-stack">
               <strong>White: {formatClock(localWhiteTime)}</strong>
-              <br />
               <strong>Black: {formatClock(localBlackTime)}</strong>
             </div>
 
@@ -891,11 +983,7 @@ export default function ChessGame({ session, guest, onSignOut }) {
               arePiecesDraggable={
                 !thinking &&
                 gameRow?.status === 'active' &&
-                (
-                  gameRow?.mode === 'bot'
-                    ? game.turn() === 'w'
-                    : isMyTurn
-                )
+                (gameRow?.mode === 'bot' ? game.turn() === 'w' : isMyTurn)
               }
               customBoardStyle={{
                 borderRadius: '18px',
@@ -912,14 +1000,14 @@ export default function ChessGame({ session, guest, onSignOut }) {
             <h3>AI Coach</h3>
 
             {gameRow?.mode === 'friend' ? (
-              <p className="muted">AI coaching is active for bot games. Friend game analysis can be added next.</p>
+              <p className="muted">
+                AI coaching is active for bot games. Friend game analysis can be added next.
+              </p>
             ) : !coach ? (
               <p className="muted">Make a move to get your first review.</p>
             ) : (
               <>
-                <div className="coach-score">
-                  {coach.moveScore ? `${coach.moveScore}/10` : '--'}
-                </div>
+                <div className="coach-score">{coach.moveScore ? `${coach.moveScore}/10` : '--'}</div>
                 <p>{coach.coachMessage}</p>
                 {coach.bestMove && <small>Best move: {coach.bestMove}</small>}
               </>
@@ -933,7 +1021,9 @@ export default function ChessGame({ session, guest, onSignOut }) {
                 <p className="muted">No moves yet.</p>
               ) : (
                 history.map((move, index) => (
-                  <span key={`${move}-${index}`}>{index + 1}. {move}</span>
+                  <span key={`${move}-${index}`}>
+                    {index + 1}. {move}
+                  </span>
                 ))
               )}
             </div>
