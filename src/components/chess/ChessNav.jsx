@@ -3,6 +3,7 @@ export default function ChessNav({
   theme,
   onToggleTheme,
   onGoMenu,
+  onOpenFriends,
   onSignOut,
   onStartNewGame,
   onResignGame,
@@ -20,6 +21,10 @@ export default function ChessNav({
       <div className="nav-actions">
         <button className="theme-toggle-btn" type="button" onClick={onToggleTheme}>
           {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+        </button>
+
+        <button className="ghost-btn hamburger-btn" type="button" onClick={onOpenFriends}>
+          ☰ Friends
         </button>
 
         {showMenu && (
