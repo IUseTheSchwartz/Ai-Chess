@@ -9,6 +9,7 @@ function uciFromMove(move) {
 }
 
 export default function ChessGame({ session }) {
+  const [screen, setScreen] = useState('menu');
   const [game, setGame] = useState(() => new Chess());
   const [gameId, setGameId] = useState(null);
   const [coach, setCoach] = useState(null);
@@ -22,12 +23,8 @@ export default function ChessGame({ session }) {
     if (game.isCheckmate()) return 'Checkmate';
     if (game.isDraw()) return 'Draw';
     if (game.isCheck()) return 'Check';
-    return game.turn() === 'w' ? 'White to move' : 'Black to move';
-  }, [fen]);
-
-  useEffect(() => {
-    startNewGame();
-  }, []);
+    return game.turn() === 'w' ? 'Your turn' : 'Bot thinking';
+  }, [fen, game]);
 
   async function startNewGame() {
     const freshGame = new Chess();
@@ -47,7 +44,6 @@ export default function ChessGame({ session }) {
       .single();
 
     if (error) {
-      console.error(error);
       alert(error.message);
       return;
     }
@@ -56,6 +52,7 @@ export default function ChessGame({ session }) {
     setGameId(data.id);
     setCoach(null);
     setHistory([]);
+    setScreen('game');
   }
 
   async function saveMove({
@@ -184,58 +181,113 @@ export default function ChessGame({ session }) {
     await supabase.auth.signOut();
   }
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div>
-          <h1>Momentum Chess</h1>
-          <p>AI coach reviews your move after it is locked in.</p>
-        </div>
-
-        <div className="topbar-actions">
-          <button onClick={startNewGame}>New Game</button>
-          <button className="secondary" onClick={signOut}>Logout</button>
-        </div>
-      </header>
-
-      <main className="game-layout">
-        <section className="board-panel">
-          <Chessboard
-            position={fen}
-            onPieceDrop={onPieceDrop}
-            boardWidth={560}
-            arePiecesDraggable={!thinking && game.turn() === 'w'}
-          />
-        </section>
-
-        <aside className="side-panel">
-          <div className="card">
-            <h2>Status</h2>
-            <p>{status}</p>
-            {thinking && <p className="muted">Thinking...</p>}
+  if (screen === 'menu') {
+    return (
+      <div className="site-shell">
+        <nav className="nav">
+          <div className="brand">
+            <div className="brand-icon">♞</div>
+            <span>ChessAI</span>
           </div>
 
-          <div className="card coach-card">
-            <h2>AI Coach</h2>
+          <button className="ghost-btn" onClick={signOut}>Logout</button>
+        </nav>
+
+        <main className="home">
+          <section className="home-hero">
+            <div className="eyebrow">AI chess training platform</div>
+            <h1>Play. Review. Improve.</h1>
+            <p>
+              Play chess against the bot and get instant AI coaching after every move.
+              See your score, the best move, and what you missed.
+            </p>
+
+            <div className="home-actions">
+              <button className="main-btn" onClick={startNewGame}>Play Bot</button>
+              <button className="soft-btn" disabled>Play Friend Soon</button>
+            </div>
+          </section>
+
+          <section className="mode-grid">
+            <div className="mode-card active">
+              <span>♟</span>
+              <h3>Play Bot</h3>
+              <p>Start a quick game and get coached after every move.</p>
+            </div>
+
+            <div className="mode-card locked">
+              <span>🤝</span>
+              <h3>Challenge Friends</h3>
+              <p>Friend requests and live games are coming next.</p>
+            </div>
+
+            <div className="mode-card locked">
+              <span>📈</span>
+              <h3>Game Review</h3>
+              <p>Saved games and deeper analysis will be added soon.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="site-shell">
+      <nav className="nav">
+        <div className="brand" onClick={() => setScreen('menu')}>
+          <div className="brand-icon">♞</div>
+          <span>ChessAI</span>
+        </div>
+
+        <div className="nav-actions">
+          <button className="ghost-btn" onClick={() => setScreen('menu')}>Menu</button>
+          <button className="ghost-btn" onClick={startNewGame}>New Game</button>
+        </div>
+      </nav>
+
+      <main className="play-layout">
+        <section className="board-wrap">
+          <div className="board-header">
+            <div>
+              <h2>Bot Match</h2>
+              <p>{status}</p>
+            </div>
+            {thinking && <div className="thinking-pill">Thinking...</div>}
+          </div>
+
+          <div className="chessboard-shell">
+            <Chessboard
+              position={fen}
+              onPieceDrop={onPieceDrop}
+              boardWidth={620}
+              arePiecesDraggable={!thinking && game.turn() === 'w'}
+              customDarkSquareStyle={{ backgroundColor: '#779556' }}
+              customLightSquareStyle={{ backgroundColor: '#ebecd0' }}
+            />
+          </div>
+        </section>
+
+        <aside className="analysis-panel">
+          <div className="analysis-card coach">
+            <h3>AI Coach</h3>
 
             {!coach ? (
               <p className="muted">Make a move to get your first review.</p>
             ) : (
               <>
-                <div className="score">
+                <div className="coach-score">
                   {coach.moveScore ? `${coach.moveScore}/10` : '--'}
                 </div>
                 <p>{coach.coachMessage}</p>
-                {coach.bestMove && (
-                  <p className="muted">Best move: {coach.bestMove}</p>
-                )}
+                {coach.bestMove && <small>Best move: {coach.bestMove}</small>}
               </>
             )}
           </div>
 
-          <div className="card">
-            <h2>Moves</h2>
-            <div className="moves">
+          <div className="analysis-card">
+            <h3>Move List</h3>
+            <div className="move-list">
               {history.length === 0 ? (
                 <p className="muted">No moves yet.</p>
               ) : (
