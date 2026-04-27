@@ -3,6 +3,7 @@ import { Chess } from 'chess.js';
 import { supabase } from '../lib/supabaseClient';
 import { analyzeMove } from '../lib/stockfishCoach';
 import {
+  calculateElo,
   getGameResult,
   makeInviteCode,
   uciFromMove
@@ -12,6 +13,16 @@ import ChessNav from '../components/chess/ChessNav';
 import MainMenu from '../components/chess/MainMenu';
 import FriendsScreen from '../components/chess/FriendsScreen';
 import GameScreen from '../components/chess/GameScreen';
+
+const DEFAULT_RATING = 800;
+
+function getProfileSelect() {
+  return `
+    *,
+    white_profile:profiles!games_white_player_id_fkey(id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed),
+    black_profile:profiles!games_black_player_id_fkey(id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed)
+  `;
+}
 
 export default function ChessGame({
   session,
@@ -28,14 +39,15 @@ export default function ChessGame({
   const [thinking, setThinking] = useState(false);
   const [history, setHistory] = useState([]);
 
+  const [profile, setProfile] = useState(null);
   const [friendSearch, setFriendSearch] = useState('');
   const [friendResults, setFriendResults] = useState([]);
   const [friends, setFriends] = useState([]);
-  const [requests, setRequests] = useState([]);
   const [stats, setStats] = useState(null);
 
   const [selectedSide, setSelectedSide] = useState('white');
   const [timeControl, setTimeControl] = useState(600);
+  const [botRatingTarget, setBotRatingTarget] = useState(800);
   const [inviteLink, setInviteLink] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
@@ -43,6 +55,7 @@ export default function ChessGame({
   const [localBlackTime, setLocalBlackTime] = useState(600);
 
   const pollingRef = useRef(null);
+  const ratingProcessedRef = useRef({});
 
   const isGuest = !session?.user;
   const userId = session?.user?.id || null;
@@ -53,6 +66,7 @@ export default function ChessGame({
     'Guest';
 
   const fen = game.fen();
+  const hasGameStarted = history.length > 0 || Boolean(gameRow?.pgn?.trim());
 
   const mySide = useMemo(() => {
     if (!gameRow) return 'white';
@@ -83,6 +97,21 @@ export default function ChessGame({
     return game.turn() === 'w' ? 'Your turn' : 'Bot thinking';
   }, [fen, gameRow, game, isMyTurn]);
 
+  async function loadProfile() {
+    if (!userId) {
+      setProfile(null);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, username, display_name, email, bot_rating, friend_rating, bot_games_completed, friend_games_completed')
+      .eq('id', userId)
+      .maybeSingle();
+
+    setProfile(data || null);
+  }
+
   async function loadStats() {
     if (!userId) return;
 
@@ -109,21 +138,16 @@ export default function ChessGame({
 
     const { data: friendRows } = await supabase
       .from('friends')
-      .select('friend_id, profiles!friends_friend_id_fkey(id, username, display_name, email, elo)')
+      .select(
+        'friend_id, profiles!friends_friend_id_fkey(id, username, display_name, email, elo, friend_rating, friend_games_completed)'
+      )
       .eq('user_id', userId);
 
     setFriends(friendRows || []);
-
-    const { data: requestRows } = await supabase
-      .from('friend_requests')
-      .select('id, sender_id, status, profiles!friend_requests_sender_id_fkey(id, username, display_name, email)')
-      .eq('receiver_id', userId)
-      .eq('status', 'pending');
-
-    setRequests(requestRows || []);
   }
 
   useEffect(() => {
+    loadProfile();
     loadStats();
     loadFriends();
   }, [userId]);
@@ -135,7 +159,7 @@ export default function ChessGame({
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, username, display_name, email, elo')
+      .select('id, username, display_name, email, elo, friend_rating, friend_games_completed')
       .or(`username.ilike.${term},display_name.ilike.${term},email.ilike.${term}`)
       .neq('id', userId)
       .limit(10);
@@ -163,41 +187,6 @@ export default function ChessGame({
     }
 
     alert('Friend request sent.');
-  }
-
-  async function acceptRequest(request) {
-    const senderId = request.sender_id;
-
-    const { error: requestError } = await supabase
-      .from('friend_requests')
-      .update({ status: 'accepted' })
-      .eq('id', request.id);
-
-    if (requestError) {
-      alert(requestError.message);
-      return;
-    }
-
-    const { error } = await supabase.from('friends').upsert([
-      { user_id: userId, friend_id: senderId },
-      { user_id: senderId, friend_id: userId }
-    ]);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    await loadFriends();
-  }
-
-  async function denyRequest(requestId) {
-    await supabase
-      .from('friend_requests')
-      .update({ status: 'denied' })
-      .eq('id', requestId);
-
-    await loadFriends();
   }
 
   function resetGameState(freshGame, row) {
@@ -229,9 +218,11 @@ export default function ChessGame({
         time_control_seconds: timeControl,
         white_time_seconds: timeControl,
         black_time_seconds: timeControl,
+        bot_rating_target: botRatingTarget,
+        rating_processed: false,
         last_move_at: new Date().toISOString()
       })
-      .select()
+      .select(getProfileSelect())
       .single();
 
     if (error) {
@@ -284,9 +275,10 @@ export default function ChessGame({
         time_control_seconds: timeControl,
         white_time_seconds: timeControl,
         black_time_seconds: timeControl,
+        rating_processed: false,
         last_move_at: new Date().toISOString()
       })
-      .select()
+      .select(getProfileSelect())
       .single();
 
     if (error) {
@@ -299,17 +291,17 @@ export default function ChessGame({
   }
 
   async function joinFriendGame(codeValue = joinCode) {
-    const code = codeValue.trim();
+    const code = codeValue.trim().toUpperCase();
     if (!code) return;
 
     const { data: row, error } = await supabase
       .from('games')
-      .select('*')
+      .select(getProfileSelect())
       .eq('invite_code', code)
       .maybeSingle();
 
     if (error || !row) {
-      alert(error?.message || 'Game link not found.');
+      alert(error?.message || 'Game code not found.');
       return;
     }
 
@@ -332,7 +324,7 @@ export default function ChessGame({
       .from('games')
       .update(updates)
       .eq('id', row.id)
-      .select()
+      .select(getProfileSelect())
       .single();
 
     if (updateError) {
@@ -348,7 +340,7 @@ export default function ChessGame({
     const params = new URLSearchParams(window.location.search);
     const code = params.get('join');
 
-    if (code) setJoinCode(code);
+    if (code) setJoinCode(code.toUpperCase());
   }, []);
 
   useEffect(() => {
@@ -356,6 +348,98 @@ export default function ChessGame({
       joinFriendGame(joinCode);
     }
   }, [screen, joinCode]);
+
+  async function updateRatingsIfNeeded(row) {
+    if (!row || row.status !== 'complete') return;
+    if (row.rating_processed) return;
+    if (ratingProcessedRef.current[row.id]) return;
+
+    ratingProcessedRef.current[row.id] = true;
+
+    if (row.mode === 'bot') {
+      if (!userId || isGuest) return;
+
+      const currentProfile = profile || {};
+      const oldRating = currentProfile.bot_rating || DEFAULT_RATING;
+      const gamesCompleted = currentProfile.bot_games_completed || 0;
+      const opponentRating = row.bot_rating_target || DEFAULT_RATING;
+
+      const result =
+        row.winner_id === userId ? 1 : row.winner_id === null ? 0.5 : 0;
+
+      const newRating = calculateElo({
+        playerRating: oldRating,
+        opponentRating,
+        result,
+        gamesCompleted
+      });
+
+      await supabase
+        .from('profiles')
+        .update({
+          bot_rating: newRating,
+          bot_games_completed: gamesCompleted + 1
+        })
+        .eq('id', userId);
+
+      await supabase
+        .from('games')
+        .update({ rating_processed: true })
+        .eq('id', row.id);
+
+      await loadProfile();
+      return;
+    }
+
+    if (row.mode === 'friend') {
+      const whiteId = row.white_player_id;
+      const blackId = row.black_player_id;
+
+      if (!whiteId || !blackId) return;
+
+      const whiteRating = row.white_profile?.friend_rating || DEFAULT_RATING;
+      const blackRating = row.black_profile?.friend_rating || DEFAULT_RATING;
+      const whiteGames = row.white_profile?.friend_games_completed || 0;
+      const blackGames = row.black_profile?.friend_games_completed || 0;
+
+      const whiteResult =
+        row.winner_id === whiteId ? 1 : row.winner_id === blackId ? 0 : 0.5;
+
+      const blackResult = 1 - whiteResult;
+
+      const newWhiteRating = calculateElo({
+        playerRating: whiteRating,
+        opponentRating: blackRating,
+        result: whiteResult,
+        gamesCompleted: whiteGames
+      });
+
+      const newBlackRating = calculateElo({
+        playerRating: blackRating,
+        opponentRating: whiteRating,
+        result: blackResult,
+        gamesCompleted: blackGames
+      });
+
+      await supabase.from('profiles').update({
+        friend_rating: newWhiteRating,
+        friend_games_completed: whiteGames + 1
+      }).eq('id', whiteId);
+
+      await supabase.from('profiles').update({
+        friend_rating: newBlackRating,
+        friend_games_completed: blackGames + 1
+      }).eq('id', blackId);
+
+      await supabase
+        .from('games')
+        .update({ rating_processed: true })
+        .eq('id', row.id);
+
+      await loadProfile();
+      await loadFriends();
+    }
+  }
 
   async function saveMove({
     gameRef,
@@ -411,10 +495,34 @@ export default function ChessGame({
       .from('games')
       .update(updatePayload)
       .eq('id', gameId)
-      .select()
+      .select(getProfileSelect())
       .single();
 
-    if (data) setGameRow(data);
+    if (data) {
+      setGameRow(data);
+      await updateRatingsIfNeeded(data);
+    }
+  }
+
+  function pickBotMoveByRating(currentGame) {
+    const legalMoves = currentGame.moves({ verbose: true });
+    if (!legalMoves.length) return null;
+
+    const rating = Number(gameRow?.bot_rating_target || botRatingTarget || DEFAULT_RATING);
+    const randomChance = Math.max(0.08, Math.min(0.85, 1 - rating / 3200));
+
+    if (Math.random() < randomChance) {
+      return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    }
+
+    const captures = legalMoves.filter((move) => move.captured);
+    const checks = legalMoves.filter((move) => {
+      const copy = new Chess(currentGame.fen());
+      copy.move(move);
+      return copy.isCheck();
+    });
+
+    return checks[0] || captures[0] || legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
   async function makeBotMove(currentGame) {
@@ -422,13 +530,16 @@ export default function ChessGame({
 
     setThinking(true);
 
-    const legalMoves = currentGame.moves({ verbose: true });
-    const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-
     await new Promise((resolve) => setTimeout(resolve, 500));
 
+    const botChoice = pickBotMoveByRating(currentGame);
+    if (!botChoice) {
+      setThinking(false);
+      return;
+    }
+
     const fenBefore = currentGame.fen();
-    const botMove = currentGame.move(randomMove);
+    const botMove = currentGame.move(botChoice);
     const fenAfter = currentGame.fen();
 
     setGame(new Chess(currentGame.fen()));
@@ -523,7 +634,7 @@ export default function ChessGame({
     pollingRef.current = setInterval(async () => {
       const { data } = await supabase
         .from('games')
-        .select('*')
+        .select(getProfileSelect())
         .eq('id', gameId)
         .maybeSingle();
 
@@ -538,6 +649,10 @@ export default function ChessGame({
       setGameRow(data);
       setLocalWhiteTime(data.white_time_seconds);
       setLocalBlackTime(data.black_time_seconds);
+
+      if (data.status === 'complete') {
+        await updateRatingsIfNeeded(data);
+      }
     }, 1500);
 
     return () => clearInterval(pollingRef.current);
@@ -546,6 +661,7 @@ export default function ChessGame({
   useEffect(() => {
     if (!gameRow || screen !== 'game') return;
     if (gameRow.status !== 'active') return;
+    if (!hasGameStarted) return;
 
     const timer = setInterval(() => {
       if (gameRow.turn === 'white') {
@@ -556,7 +672,7 @@ export default function ChessGame({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameRow?.id, gameRow?.turn, gameRow?.status, screen]);
+  }, [gameRow?.id, gameRow?.turn, gameRow?.status, screen, hasGameStarted]);
 
   async function resignGame() {
     if (!gameRow || gameRow.status !== 'active') return;
@@ -573,10 +689,13 @@ export default function ChessGame({
         updated_at: new Date().toISOString()
       })
       .eq('id', gameRow.id)
-      .select()
+      .select(getProfileSelect())
       .single();
 
-    if (data) setGameRow(data);
+    if (data) {
+      setGameRow(data);
+      await updateRatingsIfNeeded(data);
+    }
   }
 
   return (
@@ -586,6 +705,7 @@ export default function ChessGame({
         theme={theme}
         onToggleTheme={onToggleTheme}
         onGoMenu={() => setScreen('menu')}
+        onOpenFriends={() => setScreen('friends')}
         onSignOut={onSignOut}
         onStartNewGame={startNewGame}
         onResignGame={resignGame}
@@ -599,6 +719,7 @@ export default function ChessGame({
           isGuest={isGuest}
           playerName={playerName}
           stats={stats}
+          profile={profile}
           onStartBot={startNewGame}
           onOpenFriends={() => setScreen('friends')}
         />
@@ -618,13 +739,10 @@ export default function ChessGame({
           setFriendSearch={setFriendSearch}
           friendResults={friendResults}
           friends={friends}
-          requests={requests}
           onCreateFriendGame={createFriendGame}
           onJoinFriendGame={joinFriendGame}
           onSearchUsers={searchUsers}
           onSendFriendRequest={sendFriendRequest}
-          onAcceptRequest={acceptRequest}
-          onDenyRequest={denyRequest}
         />
       )}
 
