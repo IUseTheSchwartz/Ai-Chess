@@ -1,0 +1,149 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #050806;
+  color: #f4fdf8;
+  font-family: Inter, system-ui, Arial, sans-serif;
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: #10b981;
+  color: #02130c;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #17201b;
+  color: #d7ffe9;
+  border: 1px solid #2c3d34;
+}
+
+.center,
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  width: min(440px, 92vw);
+  padding: 32px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #101611, #070b08);
+  border: 1px solid #1e3328;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.login-card h1 {
+  margin: 0 0 10px;
+  font-size: 38px;
+}
+
+.login-card p {
+  color: #a8bdb2;
+  line-height: 1.5;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 34px;
+}
+
+.topbar p {
+  margin: 6px 0 0;
+  color: #9fb3a8;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.game-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 600px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.board-panel,
+.card {
+  background: rgba(12, 18, 14, 0.9);
+  border: 1px solid #1d3328;
+  border-radius: 24px;
+  padding: 20px;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.35);
+}
+
+.side-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.card h2 {
+  margin: 0 0 10px;
+}
+
+.card p {
+  line-height: 1.45;
+}
+
+.muted {
+  color: #95aa9f;
+}
+
+.score {
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #10291e;
+  color: #34d399;
+  font-size: 24px;
+  font-weight: 900;
+  margin-bottom: 12px;
+}
+
+.moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.moves span {
+  background: #101a14;
+  border: 1px solid #24372d;
+  padding: 7px 10px;
+  border-radius: 10px;
+  color: #dfffee;
+}
+
+@media (max-width: 900px) {
+  .game-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
