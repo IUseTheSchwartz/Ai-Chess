@@ -1,4 +1,4 @@
-import { playerName as getPlayerName } from '../../lib/chessHelpers';
+import { playerName as getPlayerName, ratingLabel } from '../../lib/chessHelpers';
 
 export default function FriendsScreen({
   isGuest,
@@ -24,9 +24,7 @@ export default function FriendsScreen({
         <div>
           <div className="eyebrow">Play friends</div>
           <h1>Host or join a private chess match.</h1>
-          <p>
-            Create a game code, share the link, or join with a code from a friend.
-          </p>
+          <p>Create a game code, share the link, or join with a code from a friend.</p>
         </div>
       </section>
 
@@ -93,7 +91,7 @@ export default function FriendsScreen({
             <div className="join-row">
               <input
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="Game code"
               />
               <button className="soft-btn" type="button" onClick={() => onJoinFriendGame()}>
@@ -140,7 +138,9 @@ export default function FriendsScreen({
                       <div className="person-row" key={user.id}>
                         <div>
                           <strong>{getPlayerName(user)}</strong>
-                          <small>{user.friend_rating || user.elo || 800} friend rating</small>
+                          <small>
+                            {ratingLabel(user.friend_rating || 800, user.friend_games_completed || 0)} friend rating
+                          </small>
                         </div>
                         <button
                           className="soft-btn"
@@ -171,7 +171,13 @@ export default function FriendsScreen({
                       <div className="person-row" key={friend.friend_id}>
                         <div>
                           <strong>{getPlayerName(friend.profiles)}</strong>
-                          <small>{friend.profiles?.friend_rating || friend.profiles?.elo || 800} friend rating</small>
+                          <small>
+                            {ratingLabel(
+                              friend.profiles?.friend_rating || 800,
+                              friend.profiles?.friend_games_completed || 0
+                            )}{' '}
+                            friend rating
+                          </small>
                         </div>
                         <button
                           className="soft-btn"
