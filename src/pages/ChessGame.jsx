@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { supabase } from '../lib/supabaseClient';
@@ -24,7 +24,7 @@ export default function ChessGame({ session }) {
     if (game.isDraw()) return 'Draw';
     if (game.isCheck()) return 'Check';
     return game.turn() === 'w' ? 'Your turn' : 'Bot thinking';
-  }, [fen, game]);
+  }, [fen]);
 
   async function startNewGame() {
     const freshGame = new Chess();
@@ -52,10 +52,12 @@ export default function ChessGame({ session }) {
     setGameId(data.id);
     setCoach(null);
     setHistory([]);
+    setThinking(false);
     setScreen('game');
   }
 
   async function saveMove({
+    gameRef,
     move,
     fenBefore,
     fenAfter,
@@ -71,7 +73,7 @@ export default function ChessGame({ session }) {
       game_id: gameId,
       player_id: playerId,
       actor,
-      move_number: Math.ceil(game.history().length / 2),
+      move_number: Math.ceil(gameRef.history().length / 2),
       san: move.san,
       uci: uciFromMove(move),
       fen_before: fenBefore,
@@ -85,9 +87,9 @@ export default function ChessGame({ session }) {
       .from('games')
       .update({
         current_fen: fenAfter,
-        pgn: game.pgn(),
-        turn: game.turn() === 'w' ? 'white' : 'black',
-        status: game.isGameOver() ? 'complete' : 'active',
+        pgn: gameRef.pgn(),
+        turn: gameRef.turn() === 'w' ? 'white' : 'black',
+        status: gameRef.isGameOver() ? 'complete' : 'active',
         updated_at: new Date().toISOString()
       })
       .eq('id', gameId);
@@ -111,6 +113,7 @@ export default function ChessGame({ session }) {
     setHistory(currentGame.history());
 
     await saveMove({
+      gameRef: currentGame,
       move: botMove,
       fenBefore,
       fenAfter,
@@ -139,7 +142,7 @@ export default function ChessGame({ session }) {
     const fenAfter = gameCopy.fen();
     const userMoveUci = uciFromMove(move);
 
-    setGame(gameCopy);
+    setGame(new Chess(gameCopy.fen()));
     setHistory(gameCopy.history());
     setCoach({
       moveScore: null,
@@ -153,12 +156,13 @@ export default function ChessGame({ session }) {
       fenBefore,
       fenAfter,
       userMoveUci,
-      depth: 12
+      depth: 10
     });
 
     setCoach(analysis);
 
     await saveMove({
+      gameRef: gameCopy,
       move,
       fenBefore,
       fenAfter,
@@ -258,10 +262,15 @@ export default function ChessGame({ session }) {
 
           <div className="chessboard-shell">
             <Chessboard
+              id="ChessAI-main-board"
               position={fen}
               onPieceDrop={onPieceDrop}
               boardWidth={620}
               arePiecesDraggable={!thinking && game.turn() === 'w'}
+              customBoardStyle={{
+                borderRadius: '18px',
+                boxShadow: '0 18px 50px rgba(49, 39, 25, 0.18)'
+              }}
               customDarkSquareStyle={{ backgroundColor: '#779556' }}
               customLightSquareStyle={{ backgroundColor: '#ebecd0' }}
             />
