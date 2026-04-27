@@ -561,3 +561,39 @@ body.dark-mode .setup-error-card {
   background: #0f172a;
   border-color: rgba(148, 163, 184, 0.22);
 }
+
+.guest-login-box {
+  margin-top: 20px;
+  border-top: 1px solid rgba(125, 111, 90, 0.22);
+  padding-top: 20px;
+}
+
+.guest-login-box h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.guest-login-box p {
+  margin: 5px 0 16px;
+}
+
+.guest-btn {
+  width: 100%;
+}
+
+.auth-theme-toggle,
+.theme-toggle-btn {
+  border-radius: 999px;
+  padding: 11px 15px;
+  font-weight: 900;
+  background: #ffffff;
+  border: 1px solid #ddd3c2;
+  color: #2d3748;
+}
+
+.auth-theme-toggle {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 20;
+}
