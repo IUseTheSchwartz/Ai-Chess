@@ -1,183 +1,212 @@
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: #050806;
-  color: #f4fdf8;
-  font-family: Inter, system-ui, Arial, sans-serif;
-}
-
-button {
-  border: 0;
-  border-radius: 12px;
-  padding: 12px 16px;
-  background: #10b981;
-  color: #02130c;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #17201b;
-  color: #d7ffe9;
-  border: 1px solid #2c3d34;
-}
-
-.center,
-.login-page {
+.auth-page {
   min-height: 100vh;
+  position: relative;
+  overflow: hidden;
   display: grid;
-  place-items: center;
+  grid-template-columns: 1.05fr 440px;
+  gap: 48px;
+  align-items: center;
+  padding: 48px;
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.2), transparent 32%),
+    linear-gradient(135deg, #020403 0%, #07100b 48%, #020403 100%);
 }
 
-.login-card {
-  width: min(440px, 92vw);
-  padding: 32px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, #101611, #070b08);
-  border: 1px solid #1e3328;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+.auth-bg-glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(70px);
+  opacity: 0.45;
+  pointer-events: none;
 }
 
-.login-card h1 {
-  margin: 0 0 10px;
-  font-size: 38px;
+.auth-bg-glow-one {
+  width: 320px;
+  height: 320px;
+  background: #10b981;
+  top: -90px;
+  right: 18%;
 }
 
-.login-card p {
-  color: #a8bdb2;
-  line-height: 1.5;
+.auth-bg-glow-two {
+  width: 280px;
+  height: 280px;
+  background: #34d399;
+  bottom: -100px;
+  left: 8%;
 }
 
-.app {
-  min-height: 100vh;
-  padding: 24px;
+.auth-hero,
+.auth-card {
+  position: relative;
+  z-index: 2;
 }
 
-.topbar {
+.brand-pill {
+  width: fit-content;
+  padding: 9px 13px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  background: rgba(16, 185, 129, 0.1);
+  color: #9fffd2;
+  border-radius: 999px;
+  font-weight: 800;
+  margin-bottom: 22px;
+}
+
+.auth-hero h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(48px, 6vw, 86px);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.auth-hero h1 span {
+  color: #34d399;
+}
+
+.auth-hero p {
+  max-width: 610px;
+  margin: 24px 0 0;
+  color: #b6c8bf;
+  font-size: 19px;
+  line-height: 1.6;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 760px;
+  margin-top: 34px;
+}
+
+.feature-grid div {
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(10, 18, 13, 0.72);
+  border: 1px solid rgba(52, 211, 153, 0.14);
+}
+
+.feature-grid strong {
+  display: block;
+  color: #f4fdf8;
+  margin-bottom: 6px;
+}
+
+.feature-grid small {
+  color: #93a99d;
+  line-height: 1.4;
+}
+
+.auth-card {
+  width: 100%;
+  padding: 28px;
+  border-radius: 28px;
+  background: rgba(8, 13, 10, 0.78);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(18px);
+}
+
+.auth-card-header {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
   margin-bottom: 24px;
 }
 
-.topbar h1 {
-  margin: 0;
-  font-size: 34px;
-}
-
-.topbar p {
-  margin: 6px 0 0;
-  color: #9fb3a8;
-}
-
-.topbar-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.game-layout {
+.logo-mark {
+  width: 54px;
+  height: 54px;
   display: grid;
-  grid-template-columns: minmax(320px, 600px) 1fr;
-  gap: 24px;
-  align-items: start;
-}
-
-.board-panel,
-.card {
-  background: rgba(12, 18, 14, 0.9);
-  border: 1px solid #1d3328;
-  border-radius: 24px;
-  padding: 20px;
-  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.35);
-}
-
-.side-panel {
-  display: grid;
-  gap: 16px;
-}
-
-.card h2 {
-  margin: 0 0 10px;
-}
-
-.card p {
-  line-height: 1.45;
-}
-
-.muted {
-  color: #95aa9f;
-}
-
-.score {
-  width: fit-content;
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: #10291e;
-  color: #34d399;
-  font-size: 24px;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #10b981, #6ee7b7);
+  color: #03130c;
+  font-size: 28px;
   font-weight: 900;
-  margin-bottom: 12px;
 }
 
-.moves {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.auth-card h2 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.03em;
 }
 
-.moves span {
-  background: #101a14;
-  border: 1px solid #24372d;
-  padding: 7px 10px;
-  border-radius: 10px;
-  color: #dfffee;
+.auth-card p {
+  margin: 4px 0 0;
+  color: #94a99d;
 }
 
-@media (max-width: 900px) {
-  .game-layout {
-    grid-template-columns: 1fr;
-  }
+.auth-card label {
+  display: block;
+  color: #dceee5;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
 
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  input {
+.auth-card input {
   width: 100%;
-  border: 1px solid #24372d;
-  background: #080d0a;
+  margin-top: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  background: rgba(2, 6, 4, 0.78);
   color: #f4fdf8;
-  border-radius: 12px;
-  padding: 13px 14px;
-  margin-bottom: 12px;
+  border-radius: 16px;
+  padding: 15px 15px;
   outline: none;
   font-size: 15px;
 }
 
-input:focus {
-  border-color: #10b981;
+.auth-card input:focus {
+  border-color: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+}
+
+.primary-auth-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 15px 16px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #10b981, #6ee7b7);
+  color: #02130c;
+  font-weight: 950;
+  font-size: 15px;
+}
+
+.switch-auth-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #8fffc9;
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  font-weight: 850;
 }
 
 .error-box {
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.35);
   color: #fecaca;
-  padding: 10px 12px;
-  border-radius: 12px;
-  margin-bottom: 12px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  margin-bottom: 14px;
   font-size: 14px;
 }
 
-.link-button {
-  width: 100%;
-  margin-top: 10px;
-  background: transparent;
-  color: #34d399;
-  border: 1px solid #1d3328;
-}
+@media (max-width: 980px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+    padding: 28px;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-card {
+    max-width: 520px;
+  }
 }
