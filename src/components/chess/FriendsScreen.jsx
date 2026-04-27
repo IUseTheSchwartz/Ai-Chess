@@ -13,55 +13,45 @@ export default function FriendsScreen({
   setFriendSearch,
   friendResults,
   friends,
-  requests,
   onCreateFriendGame,
   onJoinFriendGame,
   onSearchUsers,
-  onSendFriendRequest,
-  onAcceptRequest,
-  onDenyRequest
+  onSendFriendRequest
 }) {
   return (
     <main className="friends-page">
-      <section className="friends-hero">
+      <section className="friends-hero clean-friends-hero">
         <div>
-          <div className="eyebrow">Friend games</div>
-          <h1>Play friends your way.</h1>
+          <div className="eyebrow">Play friends</div>
+          <h1>Host or join a private chess match.</h1>
           <p>
-            Pick a side, choose a timer, challenge a friend, or create a private link anyone can
-            join.
+            Create a game code, share the link, or join with a code from a friend.
           </p>
-        </div>
-
-        <div className="friends-quick-card">
-          <span>⚡</span>
-          <strong>Quick match setup</strong>
-          <small>Private invite links support logged-in users and guests.</small>
         </div>
       </section>
 
       <section className="friends-layout">
         <div className="friends-main-stack">
-          <div className="friend-panel">
+          <div className="friend-panel host-panel">
             <div className="friend-panel-header">
               <div>
-                <h2>Create Match</h2>
-                <p>Choose your side and timer before creating the invite.</p>
+                <h2>Host Game</h2>
+                <p>Choose your side and timer. Your game starts when another player joins.</p>
               </div>
             </div>
 
             <div className="match-settings-grid">
               <label>
-                Side
+                Your side
                 <select value={selectedSide} onChange={(e) => setSelectedSide(e.target.value)}>
-                  <option value="white">Play White</option>
-                  <option value="black">Play Black</option>
+                  <option value="white">White</option>
+                  <option value="black">Black</option>
                   <option value="random">Random</option>
                 </select>
               </label>
 
               <label>
-                Timer
+                Time
                 <select value={timeControl} onChange={(e) => setTimeControl(Number(e.target.value))}>
                   <option value={60}>1 minute</option>
                   <option value={180}>3 minutes</option>
@@ -73,13 +63,13 @@ export default function FriendsScreen({
               </label>
 
               <button className="main-btn" type="button" onClick={() => onCreateFriendGame()}>
-                Create Share Link
+                Host Game
               </button>
             </div>
 
             {inviteLink && (
               <div className="invite-box">
-                <small>Your invite link</small>
+                <small>Game link</small>
                 <p>{inviteLink}</p>
                 <button
                   className="soft-btn"
@@ -96,7 +86,7 @@ export default function FriendsScreen({
             <div className="friend-panel-header">
               <div>
                 <h2>Join Game</h2>
-                <p>Paste a friend’s invite code or open their shared link.</p>
+                <p>Enter the game code your friend sent you.</p>
               </div>
             </div>
 
@@ -104,10 +94,10 @@ export default function FriendsScreen({
               <input
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value)}
-                placeholder="Paste invite code"
+                placeholder="Game code"
               />
               <button className="soft-btn" type="button" onClick={() => onJoinFriendGame()}>
-                Join
+                Join Game
               </button>
             </div>
           </div>
@@ -118,8 +108,7 @@ export default function FriendsScreen({
             <div className="friend-panel">
               <h2>Guest Mode</h2>
               <p className="muted">
-                You can play using invite links, but friend lists and saved stats require an
-                account.
+                Guests can host and join games. Create an account to save friends and rankings.
               </p>
             </div>
           ) : (
@@ -136,7 +125,7 @@ export default function FriendsScreen({
                   <input
                     value={friendSearch}
                     onChange={(e) => setFriendSearch(e.target.value)}
-                    placeholder="Search player"
+                    placeholder="Search username"
                   />
                   <button className="soft-btn" type="button" onClick={onSearchUsers}>
                     Search
@@ -151,7 +140,7 @@ export default function FriendsScreen({
                       <div className="person-row" key={user.id}>
                         <div>
                           <strong>{getPlayerName(user)}</strong>
-                          <small>{user.elo || 800} ELO</small>
+                          <small>{user.friend_rating || user.elo || 800} friend rating</small>
                         </div>
                         <button
                           className="soft-btn"
@@ -169,47 +158,7 @@ export default function FriendsScreen({
               <div className="friend-panel">
                 <div className="friend-panel-header">
                   <div>
-                    <h2>Requests</h2>
-                    <p>{requests.length} pending</p>
-                  </div>
-                </div>
-
-                <div className="people-list">
-                  {requests.length === 0 ? (
-                    <p className="muted">No pending requests.</p>
-                  ) : (
-                    requests.map((request) => (
-                      <div className="person-row" key={request.id}>
-                        <div>
-                          <strong>{getPlayerName(request.profiles)}</strong>
-                          <small>Wants to be friends</small>
-                        </div>
-                        <div className="row-actions">
-                          <button
-                            className="soft-btn"
-                            type="button"
-                            onClick={() => onAcceptRequest(request)}
-                          >
-                            Accept
-                          </button>
-                          <button
-                            className="ghost-btn"
-                            type="button"
-                            onClick={() => onDenyRequest(request.id)}
-                          >
-                            Deny
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="friend-panel">
-                <div className="friend-panel-header">
-                  <div>
-                    <h2>Friends</h2>
+                    <h2>Your Friends</h2>
                     <p>{friends.length} saved</p>
                   </div>
                 </div>
@@ -222,7 +171,7 @@ export default function FriendsScreen({
                       <div className="person-row" key={friend.friend_id}>
                         <div>
                           <strong>{getPlayerName(friend.profiles)}</strong>
-                          <small>{friend.profiles?.elo || 800} ELO</small>
+                          <small>{friend.profiles?.friend_rating || friend.profiles?.elo || 800} friend rating</small>
                         </div>
                         <button
                           className="soft-btn"
