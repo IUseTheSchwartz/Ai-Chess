@@ -6,24 +6,63 @@ import './styles.css';
 
 export default function App() {
   const [session, setSession] = useState(null);
+  const [profileReady, setProfileReady] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
+  async function ensureProfile(user) {
+    if (!user) return;
+
+    const username =
+      user.user_metadata?.username ||
+      user.email?.split('@')[0] ||
+      `player_${user.id.slice(0, 6)}`;
+
+    const displayName =
+      user.user_metadata?.display_name ||
+      username;
+
+    await supabase.from('profiles').upsert({
+      id: user.id,
+      email: user.email,
+      username,
+      display_name: displayName
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    setProfileReady(true);
+  }
+
+  useEffect(() => {
+    async function loadSession() {
+      const { data } = await supabase.auth.getSession();
+
+      setSession(data.session);
+
+      if (data.session?.user) {
+        await ensureProfile(data.session.user);
+      }
+
+      setLoading(false);
+    }
+
+    loadSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession);
+      setProfileReady(false);
+
+      if (newSession?.user) {
+        await ensureProfile(newSession.user);
+      }
     });
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  if (loading) return <div className="center">Loading...</div>;
+  if (loading) return <div className="loading-screen">Loading ChessAI...</div>;
 
   if (!session) return <Login />;
+
+  if (!profileReady) return <div className="loading-screen">Setting up your profile...</div>;
 
   return <ChessGame session={session} />;
 }
