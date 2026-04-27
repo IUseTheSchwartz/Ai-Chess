@@ -4,6 +4,15 @@ import Login from './pages/Login';
 import ChessGame from './pages/ChessGame';
 import './styles.css';
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    )
+  ]);
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
@@ -22,53 +31,58 @@ export default function App() {
       user.user_metadata?.display_name ||
       username;
 
-    const { error } = await supabase.from('profiles').upsert({
-      id: user.id,
-      email: user.email,
-      username,
-      display_name: displayName
-    });
+    const { error } = await withTimeout(
+      supabase.from('profiles').upsert({
+        id: user.id,
+        email: user.email,
+        username,
+        display_name: displayName
+      }),
+      7000,
+      'Profile setup'
+    );
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
   }
 
   useEffect(() => {
     let mounted = true;
 
-    async function loadSession() {
+    async function boot() {
       try {
         setSetupError('');
 
-        const { data, error } = await supabase.auth.getSession();
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          7000,
+          'Session check'
+        );
 
         if (error) throw error;
-
         if (!mounted) return;
 
-        setSession(data.session);
+        const currentSession = data?.session || null;
+        setSession(currentSession);
 
-        if (data.session?.user) {
-          await ensureProfile(data.session.user);
+        if (currentSession?.user) {
+          await ensureProfile(currentSession.user);
           if (!mounted) return;
           setProfileReady(true);
         } else {
           setProfileReady(false);
         }
       } catch (err) {
-        console.error('App setup error:', err);
-        if (mounted) {
-          setSetupError(err.message || 'Could not load ChessAI.');
-          setSession(null);
-          setProfileReady(false);
-        }
+        console.error('ChessAI boot error:', err);
+        if (!mounted) return;
+        setSetupError(err.message || 'ChessAI could not load.');
+        setSession(null);
+        setProfileReady(false);
       } finally {
         if (mounted) setLoading(false);
       }
     }
 
-    loadSession();
+    boot();
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       try {
@@ -81,15 +95,14 @@ export default function App() {
           setProfileReady(true);
         }
       } catch (err) {
-        console.error('Auth profile error:', err);
+        console.error('Auth change error:', err);
         setSetupError(err.message || 'Could not set up your profile.');
-        setProfileReady(false);
       }
     });
 
     return () => {
       mounted = false;
-      listener?.subscription?.unsubscribe();
+      listener?.subscription?.unsubscribe?.();
     };
   }, []);
 
@@ -103,9 +116,12 @@ export default function App() {
         <div>
           <h2>ChessAI setup error</h2>
           <p>{setupError}</p>
+
           <button
             onClick={async () => {
               await supabase.auth.signOut();
+              localStorage.clear();
+              sessionStorage.clear();
               window.location.reload();
             }}
           >
